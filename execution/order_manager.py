@@ -16,7 +16,12 @@ logger = logging.getLogger(__name__)
 
 try:
     from py_clob_client.client import ClobClient
-    from py_clob_client.clob_types import ApiCreds, OrderArgs, OrderType
+    from py_clob_client.clob_types import (
+        ApiCreds,
+        MarketOrderArgs,
+        OrderArgs,
+        PartialCreateOrderOptions,
+    )
     from py_clob_client.constants import POLYGON
     _SDK_AVAILABLE = True
 except ImportError:
@@ -24,13 +29,12 @@ except ImportError:
     logger.warning("py-clob-client not installed — live execution disabled")
 
 _MAKER_WAIT_SECONDS = 3.0
-_FAK_PRICE_SLIP     = 0.002
 
 
 class OrderManager:
     def __init__(self, dry_run: bool = True) -> None:
-        self.dry_run  = dry_run
-        self._client  = None
+        self.dry_run = dry_run
+        self._client = None
 
         if not dry_run and _SDK_AVAILABLE:
             self._client = ClobClient(
@@ -72,11 +76,15 @@ class OrderManager:
         """
         Execute a snipe order.
 
-        size_usdc: actual USDC to spend (after live guardrails are applied).
-                   Falls back to MAX_POSITION_USDC if not provided.
+        Maker path : GTC limit at ask_price - 0.001; waits _MAKER_WAIT_SECONDS;
+                     falls back to market order if not filled.
+        Taker path : immediate market order (FOK) via create_market_order.
+
+        size_usdc  : USDC to spend (after live guardrails). Falls back to
+                     MAX_POSITION_USDC if not provided.
         """
-        usdc    = size_usdc if size_usdc is not None else MAX_POSITION_USDC
-        shares  = usdc / ask_price
+        usdc   = size_usdc if size_usdc is not None else MAX_POSITION_USDC
+        shares = usdc / ask_price
 
         if self.dry_run or self._client is None:
             logger.info(
@@ -90,37 +98,51 @@ class OrderManager:
 
         if use_maker:
             maker_price = round(ask_price - 0.001, 4)
-            order_args  = OrderArgs(token_id=token_id, price=maker_price, size=shares, side=side)
+            order_args  = OrderArgs(
+                token_id=token_id, price=maker_price, size=shares, side=side
+            )
+            # PartialCreateOrderOptions() lets the SDK auto-fetch tick_size / neg_risk
+            options = PartialCreateOrderOptions()
             try:
                 result = await loop.run_in_executor(
-                    None, lambda: self._client.create_and_post_order(order_args)
+                    None, lambda: self._client.create_and_post_order(order_args, options)
                 )
                 logger.info("Maker order placed: %s", result)
                 await asyncio.sleep(_MAKER_WAIT_SECONDS)
-                order_id = result.get("orderID") or result.get("id", "")
+                order_id    = result.get("orderID") or result.get("id", "")
                 status_resp = await loop.run_in_executor(
                     None, lambda: self._client.get_order(order_id)
                 )
                 if (status_resp or {}).get("status") not in ("MATCHED", "FILLED"):
-                    logger.info("Maker not filled — cancelling, falling back to FAK")
+                    logger.info("Maker not filled — cancelling, falling back to market order")
                     await loop.run_in_executor(None, lambda: self._client.cancel(order_id))
-                    return await self._place_fak(token_id, side, ask_price, shares, loop)
+                    return await self._place_market_order(token_id, side, usdc, loop)
                 return status_resp
             except Exception as exc:
-                logger.error("Maker order failed: %s — falling back to FAK", exc)
-                return await self._place_fak(token_id, side, ask_price, shares, loop)
+                logger.error("Maker order failed: %s — falling back to market order", exc)
+                return await self._place_market_order(token_id, side, usdc, loop)
         else:
-            return await self._place_fak(token_id, side, ask_price, shares, loop)
+            return await self._place_market_order(token_id, side, usdc, loop)
 
-    async def _place_fak(self, token_id, side, ask_price, size_shares, loop) -> dict | None:
-        fak_price  = round(min(ask_price + _FAK_PRICE_SLIP, 0.999), 4)
-        order_args = OrderArgs(token_id=token_id, price=fak_price, size=size_shares, side=side)
+    async def _place_market_order(
+        self, token_id: str, side: str, amount_usdc: float, loop
+    ) -> dict | None:
+        """
+        Market order via create_market_order (FOK — Fill or Kill).
+        Uses amount in USDC, not shares.
+        """
+        market_args = MarketOrderArgs(
+            token_id=token_id,
+            amount=amount_usdc,
+            side=side,
+        )
+        options = PartialCreateOrderOptions()
         try:
             result = await loop.run_in_executor(
-                None, lambda: self._client.create_and_post_order(order_args, OrderType.FAK)
+                None, lambda: self._client.create_market_order(market_args, options)
             )
-            logger.info("FAK order placed: %s", result)
+            logger.info("Market order placed: %s", result)
             return result
         except Exception as exc:
-            logger.error("FAK order failed: %s", exc)
+            logger.error("Market order failed: %s", exc)
             return None
