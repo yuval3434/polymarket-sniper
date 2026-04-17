@@ -12,6 +12,7 @@ paper_trades.csv
 candidate_paper_trades.csv
 candidate_config.json
 learning_history.json
+trades_history.csv
 
 # ── Python cache ──────────────────────────────────────────────────
 __pycache__/

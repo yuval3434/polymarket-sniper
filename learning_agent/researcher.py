@@ -343,7 +343,7 @@ async def research(
 
     for i, r in enumerate(results[:3]):
         logger.info(
-            "Researcher rank #%d: trades=%d win_rate=%.1%% pnl=%.4f score=%.4f",
+            "Researcher rank #%d: trades=%d win_rate=%.1f%% pnl=%.4f score=%.4f",
             i + 1, r.trades_taken, r.win_rate, r.total_pnl, r.score,
         )
 

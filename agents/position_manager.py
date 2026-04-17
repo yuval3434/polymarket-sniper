@@ -31,6 +31,8 @@ from typing import Optional
 from core.database import log_decision, log_trade, update_decision_outcome
 from core.pnl_tracker import PnLTracker, TradeRecord
 from core.risk_manager import RiskManager
+from core.tracker import TradeEntry, record_trade as _tracker_record
+import engine.strategy_loader as _scfg
 from market.state import MarketState
 
 logger = logging.getLogger(__name__)
@@ -52,6 +54,7 @@ class OpenPosition:
     size_usdc:      float
     size_shares:    float
     entry_time:     float = field(default_factory=time.monotonic)
+    entry_ts_iso:   str   = field(default_factory=lambda: datetime.now(tz=timezone.utc).isoformat())
     decision_id:    int = 0
     p_true:         float = 0.5
     z_score:        float = 0.0
@@ -289,6 +292,27 @@ class PositionManager:
         )
         self.pnl_tracker.record(record)
         self.risk_manager.record_trade_result(pnl_usd, win)
+
+        # Permanent CSV log for the dashboard
+        try:
+            _tracker_record(TradeEntry(
+                trade_id=trade_id,
+                entry_timestamp=pos.entry_ts_iso,
+                exit_timestamp=datetime.now(tz=timezone.utc).isoformat(),
+                token_side=pos.token_side,
+                entry_price=pos.entry_price,
+                exit_price=exit_price,
+                size_usdc=pos.size_usdc,
+                pnl_usd=pnl_usd,
+                pnl_pct=pnl_pct,
+                outcome="WIN" if win else "LOSS",
+                strategy_name=_scfg.strategy_name(),
+                exit_reason=exit_type,
+                market_id=pos.market_id,
+                dry_run=pos.is_dry_run,
+            ))
+        except Exception as _exc:
+            logger.warning("Tracker write failed: %s", _exc)
 
         # Send to Evaluator for post-mortem analysis
         try:

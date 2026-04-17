@@ -134,7 +134,7 @@ class DeveloperAgent:
 
         result: BacktestResult = backtest(candidate, candles)
         logger.info(
-            "Developer: backtest result — trades=%d win_rate=%.1%% pnl=%.4f score=%.4f",
+            "Developer: backtest result — trades=%d win_rate=%.1f%% pnl=%.4f score=%.4f",
             result.trades_taken, result.win_rate, result.total_pnl, result.score,
         )
 

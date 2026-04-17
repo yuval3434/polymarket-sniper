@@ -114,3 +114,14 @@ def max_poly_spread() -> float:
 
 def strategy_version() -> int:
     return int(_load().get("_meta", {}).get("version", 1))
+
+def strategy_name() -> str:
+    """Human-readable strategy label for the tracker/dashboard."""
+    meta    = _load().get("_meta", {})
+    version = meta.get("version", 1)
+    exp_id  = meta.get("promoted_from_experiment") or meta.get("experiment_id", "")
+    if meta.get("baseline"):
+        return f"v{version}-baseline"
+    if exp_id:
+        return f"v{version}-{str(exp_id)[-8:]}"
+    return f"v{version}"

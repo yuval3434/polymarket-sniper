@@ -97,7 +97,7 @@ def stage_candidate(
     }
     _atomic_write(CANDIDATE_CONFIG_PATH, candidate)
     logger.info(
-        "Developer: staged candidate %s (backtest win_rate=%.1%%, score=%.4f)",
+        "Developer: staged candidate %s (backtest win_rate=%.1f%%, score=%.4f)",
         experiment_id, backtest_win_rate, backtest_score,
     )
     _append_history({
@@ -211,7 +211,7 @@ def promote_candidate(
     })
 
     logger.info(
-        "Developer: PROMOTED candidate %s → live (paper win_rate=%.1%%, %d trades)",
+        "Developer: PROMOTED candidate %s → live (paper win_rate=%.1f%%, %d trades)",
         experiment_id, paper_win_rate, paper_trades,
     )
 

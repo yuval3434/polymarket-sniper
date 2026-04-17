@@ -109,6 +109,12 @@ py main.py --status
 # Install / update dependencies
 py -m pip install -r requirements.txt
 
+# ── Dashboard (separate process, safe to run alongside the bot) ────────────
+streamlit run dashboard.py
+# Opens at http://localhost:8501
+# Reads trades_history.csv — zero impact on the trading loop
+# Auto-refreshes every 15s when the checkbox is enabled
+
 # View live SQLite performance data
 sqlite3 trading_bot.db "SELECT * FROM performance ORDER BY id DESC LIMIT 5;"
 
