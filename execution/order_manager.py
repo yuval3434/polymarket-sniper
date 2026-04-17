@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 from config import (
+    ETH_PRIVATE_KEY,
     MAX_POSITION_USDC,
     POLY_API_KEY,
     POLY_FUNDER_ADDRESS,
@@ -34,6 +35,7 @@ class OrderManager:
         if not dry_run and _SDK_AVAILABLE:
             self._client = ClobClient(
                 host=POLY_HOST,
+                key=ETH_PRIVATE_KEY,
                 chain_id=POLYGON,
                 creds=ApiCreds(
                     api_key=POLY_API_KEY,
