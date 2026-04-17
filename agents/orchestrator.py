@@ -148,22 +148,34 @@ class Orchestrator:
         z_score: float,
         ev: float,
         would_execute: bool,
-    ) -> None:
+    ) -> float | None:
         """
         Called for every snipe evaluation (whether executed or not).
         Routes to PositionManager and DeveloperAgent shadow trader.
+
+        Returns the final bet size (USDC) used, or None if the trade was
+        blocked (circuit breaker, guardrail rejection, already in position).
         """
         if not would_execute:
-            return
+            return None
 
         if self.risk_manager.halted:
             logger.warning("Snipe blocked: circuit breaker is active")
-            return
+            return None
 
-        # Dynamic bet sizing
-        bet_usdc = self.risk_manager.kelly_bet_usdc(p_true)
+        # ── Bet sizing ────────────────────────────────────────────────
+        kelly_bet = self.risk_manager.kelly_bet_usdc(p_true)
 
-        # Open position in PositionManager
+        if not self.dry_run:
+            # Live mode: enforce hard $10/$15 guardrails
+            bet_usdc = self.risk_manager.apply_live_clamp(kelly_bet)
+            if bet_usdc is None:
+                logger.warning("Snipe REJECTED by live guardrail (Kelly=%.2f)", kelly_bet)
+                return None
+        else:
+            bet_usdc = kelly_bet
+
+        # ── Open position in PositionManager ─────────────────────────
         if not self.position_manager.has_open_position:
             self.position_manager.open_position(
                 market_id=self.state.market_id,
@@ -177,7 +189,7 @@ class Orchestrator:
                 is_dry_run=self.dry_run,
             )
 
-        # Shadow-trade the candidate config (if validation is active)
+        # ── Shadow-trade the candidate config (if validation active) ──
         self.developer.record_shadow_trade(
             market_id=self.state.market_id,
             token_side=token_side,
@@ -187,6 +199,8 @@ class Orchestrator:
             ev=ev,
             would_execute=would_execute,
         )
+
+        return bet_usdc
 
     def status(self) -> str:
         return (

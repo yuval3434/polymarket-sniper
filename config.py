@@ -1,7 +1,12 @@
+import logging
 import os
+import sys
+
 from dotenv import load_dotenv
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # --- Polymarket CLOB credentials ---
 POLY_API_KEY: str = os.environ.get("POLY_API_KEY", "")
@@ -11,7 +16,48 @@ POLY_FUNDER_ADDRESS: str = os.environ.get("POLY_FUNDER_ADDRESS", "")
 ETH_PRIVATE_KEY: str = os.environ.get("ETH_PRIVATE_KEY", "")
 
 # --- Trading parameters ---
+# NOTE: DRY_RUN is the env-file default only.
+# main.py --mode live/paper overrides this at runtime.
 DRY_RUN: bool = os.environ.get("DRY_RUN", "true").lower() == "true"
+
+
+def validate_live_credentials() -> None:
+    """
+    Called before live mode starts.
+    Checks every required secret is present and well-formed.
+    Calls sys.exit(1) with a CRITICAL log on any failure — never
+    allow live trading to start with missing/malformed credentials.
+    """
+    errors: list[str] = []
+
+    if not POLY_API_KEY:
+        errors.append("POLY_API_KEY is missing")
+    if not POLY_SECRET:
+        errors.append("POLY_SECRET is missing")
+    if not POLY_PASSPHRASE:
+        errors.append("POLY_PASSPHRASE is missing")
+    if not POLY_FUNDER_ADDRESS:
+        errors.append("POLY_FUNDER_ADDRESS is missing")
+    elif not POLY_FUNDER_ADDRESS.startswith("0x") or len(POLY_FUNDER_ADDRESS) != 42:
+        errors.append(
+            f"POLY_FUNDER_ADDRESS looks malformed (got '{POLY_FUNDER_ADDRESS[:10]}…')"
+            " — expected 0x + 40 hex chars"
+        )
+    if not ETH_PRIVATE_KEY:
+        errors.append("ETH_PRIVATE_KEY is missing")
+    elif not ETH_PRIVATE_KEY.startswith("0x"):
+        errors.append("ETH_PRIVATE_KEY must start with '0x'")
+
+    if errors:
+        logger.critical("=" * 62)
+        logger.critical("LIVE MODE CREDENTIAL CHECK FAILED — cannot start")
+        for e in errors:
+            logger.critical("  ✗  %s", e)
+        logger.critical("Fix your .env file and restart.")
+        logger.critical("=" * 62)
+        sys.exit(1)
+
+    logger.info("Live credential check passed ✓  (API key …%s)", POLY_API_KEY[-4:])
 MAX_POSITION_USDC: float = float(os.environ.get("MAX_POSITION_USDC", "10.0"))
 SAFETY_BUFFER: float = float(os.environ.get("SAFETY_BUFFER", "0.03"))
 

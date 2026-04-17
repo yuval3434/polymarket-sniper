@@ -97,14 +97,20 @@ polymarket_sniper/
 ## Terminal Run Commands
 
 ```bash
-# Standard run (paper trade mode — safe)
-py main.py
+# ── Execution modes ───────────────────────────────────────────────────────
+py main.py                   # paper trade (safe default — no real funds)
+py main.py --mode paper      # explicit paper mode (identical to above)
+py main.py --mode live       # LIVE trading — validates credentials, 5s countdown
 
-# Score pending paper trades after session
-py main.py --resolve
+# ── Live trading limits (HARD-CODED — never change without testing) ───────
+# Minimum bet : $10 USDC per trade
+# Maximum bet : $15 USDC per trade
+# These clamps are enforced in core/risk_manager.py:apply_live_clamp()
+# regardless of what Kelly sizing suggests. Any deviation is logged as WARNING.
 
-# Print quick DB stats and exit
-py main.py --status
+# ── Utility commands ──────────────────────────────────────────────────────
+py main.py --resolve         # score pending paper trades and exit
+py main.py --status          # print session stats from DB and exit
 
 # Install / update dependencies
 py -m pip install -r requirements.txt

@@ -2,7 +2,6 @@ import asyncio
 import logging
 
 from config import (
-    DRY_RUN,
     MAX_POSITION_USDC,
     POLY_API_KEY,
     POLY_FUNDER_ADDRESS,
@@ -14,7 +13,6 @@ from market.state import MarketState
 
 logger = logging.getLogger(__name__)
 
-# Import lazily so the module can be imported even without py-clob-client installed
 try:
     from py_clob_client.client import ClobClient
     from py_clob_client.clob_types import ApiCreds, OrderArgs, OrderType
@@ -24,14 +22,16 @@ except ImportError:
     _SDK_AVAILABLE = False
     logger.warning("py-clob-client not installed — live execution disabled")
 
-_MAKER_WAIT_SECONDS = 3.0   # time to wait for a maker fill before falling back to FAK
-_FAK_PRICE_SLIP = 0.002     # cross the spread by this amount when using FAK
+_MAKER_WAIT_SECONDS = 3.0
+_FAK_PRICE_SLIP     = 0.002
 
 
 class OrderManager:
-    def __init__(self) -> None:
-        self._client = None
-        if not DRY_RUN and _SDK_AVAILABLE:
+    def __init__(self, dry_run: bool = True) -> None:
+        self.dry_run  = dry_run
+        self._client  = None
+
+        if not dry_run and _SDK_AVAILABLE:
             self._client = ClobClient(
                 host=POLY_HOST,
                 chain_id=POLYGON,
@@ -42,9 +42,9 @@ class OrderManager:
                 ),
                 funder=POLY_FUNDER_ADDRESS,
             )
-            logger.info("ClobClient initialized (LIVE mode)")
-        elif DRY_RUN:
-            logger.info("OrderManager in DRY_RUN mode — no real orders will be placed")
+            logger.info("ClobClient initialized — LIVE mode")
+        elif dry_run:
+            logger.info("OrderManager in paper mode — no real orders will be placed")
         else:
             logger.error("py-clob-client not available — cannot run in live mode")
 
@@ -61,90 +61,61 @@ class OrderManager:
     async def snipe(
         self,
         token_id: str,
-        side: str,          # "BUY" — we always buy the token we think wins
+        side: str,
         ask_price: float,
         use_maker: bool,
         state: MarketState,
+        size_usdc: float | None = None,
     ) -> dict | None:
         """
         Execute a snipe order.
-        Maker path: place GTC limit at ask_price - 0.001, wait _MAKER_WAIT_SECONDS, then FAK.
-        Taker path: FAK immediately at ask_price + _FAK_PRICE_SLIP.
 
-        In DRY_RUN mode, returns a simulated fill dict without touching the API.
+        size_usdc: actual USDC to spend (after live guardrails are applied).
+                   Falls back to MAX_POSITION_USDC if not provided.
         """
-        size_shares = MAX_POSITION_USDC / ask_price
+        usdc    = size_usdc if size_usdc is not None else MAX_POSITION_USDC
+        shares  = usdc / ask_price
 
-        if DRY_RUN or self._client is None:
+        if self.dry_run or self._client is None:
             logger.info(
-                "[DRY RUN] Would snipe: token=%s side=%s size=%.4f price=%.4f maker=%s",
-                token_id, side, size_shares, ask_price, use_maker,
+                "[PAPER] Would snipe: token=%s side=%s size_usdc=%.2f shares=%.4f "
+                "price=%.4f maker=%s",
+                token_id, side, usdc, shares, ask_price, use_maker,
             )
-            return {
-                "order_id": "DRY_RUN",
-                "status": "simulated",
-                "price": ask_price,
-                "size": size_shares,
-            }
+            return {"order_id": "PAPER", "status": "simulated", "price": ask_price, "size": shares}
 
         loop = asyncio.get_event_loop()
 
         if use_maker:
             maker_price = round(ask_price - 0.001, 4)
-            order_args = OrderArgs(
-                token_id=token_id,
-                price=maker_price,
-                size=size_shares,
-                side=side,
-            )
+            order_args  = OrderArgs(token_id=token_id, price=maker_price, size=shares, side=side)
             try:
                 result = await loop.run_in_executor(
-                    None,
-                    lambda: self._client.create_and_post_order(order_args),
+                    None, lambda: self._client.create_and_post_order(order_args)
                 )
                 logger.info("Maker order placed: %s", result)
-
-                # Wait for fill; cancel and fall back to FAK if not filled
                 await asyncio.sleep(_MAKER_WAIT_SECONDS)
                 order_id = result.get("orderID") or result.get("id", "")
-                order_status = await loop.run_in_executor(
+                status_resp = await loop.run_in_executor(
                     None, lambda: self._client.get_order(order_id)
                 )
-                status = (order_status or {}).get("status", "")
-                if status not in ("MATCHED", "FILLED"):
-                    logger.info(
-                        "Maker not filled (%s) — cancelling and falling back to FAK", status
-                    )
-                    await loop.run_in_executor(
-                        None, lambda: self._client.cancel(order_id)
-                    )
-                    return await self._place_fak(token_id, side, ask_price, size_shares, loop)
-                return order_status
+                if (status_resp or {}).get("status") not in ("MATCHED", "FILLED"):
+                    logger.info("Maker not filled — cancelling, falling back to FAK")
+                    await loop.run_in_executor(None, lambda: self._client.cancel(order_id))
+                    return await self._place_fak(token_id, side, ask_price, shares, loop)
+                return status_resp
             except Exception as exc:
                 logger.error("Maker order failed: %s — falling back to FAK", exc)
-                return await self._place_fak(token_id, side, ask_price, size_shares, loop)
+                return await self._place_fak(token_id, side, ask_price, shares, loop)
         else:
-            return await self._place_fak(token_id, side, ask_price, size_shares, loop)
+            return await self._place_fak(token_id, side, ask_price, shares, loop)
 
-    async def _place_fak(
-        self,
-        token_id: str,
-        side: str,
-        ask_price: float,
-        size_shares: float,
-        loop,
-    ) -> dict | None:
-        fak_price = round(min(ask_price + _FAK_PRICE_SLIP, 0.999), 4)
-        order_args = OrderArgs(
-            token_id=token_id,
-            price=fak_price,
-            size=size_shares,
-            side=side,
-        )
+    async def _place_fak(self, token_id, side, ask_price, size_shares, loop) -> dict | None:
+        fak_price  = round(min(ask_price + _FAK_PRICE_SLIP, 0.999), 4)
+        order_args = OrderArgs(token_id=token_id, price=fak_price, size=size_shares, side=side)
         try:
             result = await loop.run_in_executor(
-                None,
-                lambda: self._client.create_and_post_order(order_args, OrderType.FAK),
+                None, lambda: self._client.create_and_post_order(order_args, OrderType.FAK)
             )
             logger.info("FAK order placed: %s", result)
             return result
