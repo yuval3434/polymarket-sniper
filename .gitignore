@@ -1,0 +1,35 @@
+# ── Secrets / credentials ────────────────────────────────────────
+.env
+*.pem
+*.key
+*private_key*
+
+# ── Runtime data (never commit live trading state) ────────────────
+trading_bot.db
+trading_bot.db-shm
+trading_bot.db-wal
+paper_trades.csv
+candidate_paper_trades.csv
+candidate_config.json
+learning_history.json
+
+# ── Python cache ──────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# ── IDE / OS ──────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ── Logs ─────────────────────────────────────────────────────────
+*.log
