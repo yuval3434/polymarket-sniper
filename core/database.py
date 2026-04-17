@@ -232,6 +232,67 @@ def fetch_recent_trades(n: int = 50, dry_run: bool | None = None, path: str = DB
     return [dict(r) for r in rows]
 
 
+def fetch_resolved_trades_with_context(path: str = DB_PATH) -> list[dict]:
+    """
+    Returns every closed trade enriched with z_score and p_true from the
+    matching SNIPE decision.  This is the Reviewer's primary data source —
+    outcomes here are always resolved (written at position close time).
+
+    Joins strategy:
+      - Load all trades (float P&L, win flag)
+      - Load all SNIPE decisions that have an outcome set (1-to-1 with trades)
+      - Match on market_id in Python to avoid SQLite json_extract version issues
+    """
+    with get_conn(path) as conn:
+        trade_rows = conn.execute(
+            "SELECT * FROM trades ORDER BY id ASC"
+        ).fetchall()
+
+        dec_rows = conn.execute(
+            """SELECT id, timestamp, details, outcome
+               FROM decisions
+               WHERE agent = 'POSITION_MANAGER'
+                 AND decision_type = 'SNIPE'
+                 AND outcome IS NOT NULL
+                 AND outcome != ''
+               ORDER BY id ASC"""
+        ).fetchall()
+
+    trades    = [dict(r) for r in trade_rows]
+    decisions = [dict(r) for r in dec_rows]
+
+    # Build market_id → decision context (last decision wins per market_id)
+    ctx_by_market: dict[str, dict] = {}
+    for dec in decisions:
+        try:
+            details: dict = json.loads(dec.get("details") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            details = {}
+        mid = str(details.get("market_id", ""))
+        if mid:
+            ctx_by_market[mid] = {
+                "p_true":  float(details.get("p_true",  0.5)),
+                "z_score": float(details.get("z_score", 0.0)),
+            }
+
+    # Enrich each trade row
+    enriched: list[dict] = []
+    for t in trades:
+        mid = str(t.get("market_id", ""))
+        ctx = ctx_by_market.get(mid, {"p_true": 0.5, "z_score": 0.0})
+        enriched.append({
+            **t,
+            "p_true":  ctx["p_true"],
+            "z_score": ctx["z_score"],
+            # Normalise field names so Reviewer.Trade constructor is unambiguous
+            "ask_price":   float(t.get("entry_price") or 0.0),
+            "actual_pnl":  float(t.get("pnl_usd")     or 0.0),
+            "outcome":     "WIN" if t.get("win") else "LOSS",
+        })
+
+    return enriched
+
+
 def fetch_recent_ticks(market_id: str, n: int = 360, path: str = DB_PATH) -> list[dict]:
     with get_conn(path) as conn:
         rows = conn.execute(

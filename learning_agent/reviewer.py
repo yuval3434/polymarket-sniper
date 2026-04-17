@@ -1,8 +1,11 @@
 """
 Reviewer — Data Ingestion & Error Analysis
 ==========================================
-Parses paper_trades.csv, classifies loss patterns, and returns a
+Parses closed trade history, classifies loss patterns, and returns a
 structured AnalysisReport that the Researcher uses to form hypotheses.
+
+Primary data source : trading_bot.db  (outcomes always resolved at close time)
+Fallback            : paper_trades.csv (only has resolved outcomes after --resolve)
 """
 from __future__ import annotations
 
@@ -24,44 +27,44 @@ PAPER_TRADES_CSV = os.path.join(os.path.dirname(__file__), "..", "paper_trades.c
 
 @dataclass
 class Trade:
-    timestamp: str
-    market_id: str
-    btc_price: float
-    opening_price: float
-    token_side: str         # "UP" or "DOWN"
-    ask_price: float
-    p_true: float
-    z_score: float
-    expected_value: float
-    would_execute: bool
+    timestamp:           str
+    market_id:           str
+    btc_price:           float
+    opening_price:       float
+    token_side:          str    # "UP" or "DOWN"
+    ask_price:           float
+    p_true:              float
+    z_score:             float
+    expected_value:      float
+    would_execute:       bool
     fee_adjusted_profit: float
-    actual_outcome: str     # "WIN", "LOSS", "PENDING"
-    actual_pnl: float
+    actual_outcome:      str    # "WIN", "LOSS", "PENDING"
+    actual_pnl:          float
 
 
 @dataclass
 class LossPattern:
-    name: str
-    count: int
-    description: str
-    suggested_fix: dict     # parameter delta suggestion
+    name:          str
+    count:         int
+    description:   str
+    suggested_fix: dict
 
 
 @dataclass
 class AnalysisReport:
-    total_trades: int
-    executed_trades: int
-    wins: int
-    losses: int
-    pending: int
-    win_rate: float
-    avg_pnl: float
-    avg_z_score_wins: float
-    avg_z_score_losses: float
-    avg_ask_wins: float
-    avg_ask_losses: float
-    patterns: list[LossPattern] = field(default_factory=list)
-    raw_trades: list[Trade] = field(default_factory=list)
+    total_trades:        int
+    executed_trades:     int
+    wins:                int
+    losses:              int
+    pending:             int
+    win_rate:            float
+    avg_pnl:             float
+    avg_z_score_wins:    float
+    avg_z_score_losses:  float
+    avg_ask_wins:        float
+    avg_ask_losses:      float
+    patterns:            list[LossPattern] = field(default_factory=list)
+    raw_trades:          list[Trade]       = field(default_factory=list)
 
     def summary(self) -> str:
         lines = [
@@ -77,33 +80,113 @@ class AnalysisReport:
 
 
 # ---------------------------------------------------------------------------
-# CSV parsing
+# Primary loader — trading_bot.db (outcomes always resolved)
 # ---------------------------------------------------------------------------
 
-def _load_trades(csv_path: str) -> list[Trade]:
+def _load_trades_from_db() -> list[Trade]:
+    """
+    Reads from trading_bot.db via fetch_resolved_trades_with_context().
+    Each row already has p_true, z_score (joined from decisions table)
+    and actual P&L from the trades table.
+    """
+    try:
+        from core.database import fetch_resolved_trades_with_context
+        rows = fetch_resolved_trades_with_context()
+    except Exception as exc:
+        logger.warning("Reviewer: DB query failed (%s) — will try CSV fallback", exc)
+        return []
+
+    logger.debug("Reviewer [DB]: fetched %d raw rows from trading_bot.db", len(rows))
+
+    trades: list[Trade] = []
+    for i, row in enumerate(rows):
+        logger.debug(
+            "Reviewer [DB] row %d: market=%s side=%s ask=%.4f p_true=%.4f "
+            "z=%.4f pnl_usd=%.4f win=%s exit=%s",
+            i,
+            row.get("market_id", "?"),
+            row.get("token_side", "?"),
+            float(row.get("ask_price") or 0),
+            float(row.get("p_true") or 0.5),
+            float(row.get("z_score") or 0),
+            float(row.get("actual_pnl") or 0),
+            row.get("outcome", "?"),
+            row.get("exit_type", "?"),
+        )
+        try:
+            trades.append(Trade(
+                timestamp=str(row.get("timestamp", "")),
+                market_id=str(row.get("market_id", "")),
+                btc_price=0.0,       # not stored in trades table
+                opening_price=0.0,   # not stored in trades table
+                token_side=str(row.get("token_side", "")),
+                ask_price=float(row.get("ask_price") or 0.0),
+                p_true=float(row.get("p_true") or 0.5),
+                z_score=float(row.get("z_score") or 0.0),
+                expected_value=0.0,  # not stored in trades table
+                would_execute=True,  # all DB rows are executed trades
+                fee_adjusted_profit=float(row.get("actual_pnl") or 0.0),
+                actual_outcome=str(row.get("outcome", "PENDING")),
+                actual_pnl=float(row.get("actual_pnl") or 0.0),
+            ))
+        except (TypeError, ValueError) as exc:
+            logger.warning("Reviewer [DB]: skipped row %d due to parse error: %s | row=%s", i, exc, row)
+
+    logger.info("Reviewer [DB]: loaded %d trades (source: trading_bot.db)", len(trades))
+    return trades
+
+
+# ---------------------------------------------------------------------------
+# Fallback loader — paper_trades.csv
+# (only useful after `py main.py --resolve` has been run)
+# ---------------------------------------------------------------------------
+
+def _load_trades_from_csv(csv_path: str) -> list[Trade]:
     trades: list[Trade] = []
     if not os.path.exists(csv_path):
+        logger.debug("Reviewer [CSV]: file not found at %s", csv_path)
         return trades
-    with open(csv_path, newline="") as f:
-        for row in csv.DictReader(f):
-            try:
-                trades.append(Trade(
-                    timestamp=row.get("timestamp", ""),
-                    market_id=row.get("market_id", ""),
-                    btc_price=float(row.get("btc_price", 0)),
-                    opening_price=float(row.get("opening_price", 0)),
-                    token_side=row.get("token_side", ""),
-                    ask_price=float(row.get("ask_price", 0)),
-                    p_true=float(row.get("P_true", 0.5)),
-                    z_score=float(row.get("Z_score", 0)),
-                    expected_value=float(row.get("expected_value", 0)),
-                    would_execute=row.get("would_execute", "False").lower() == "true",
-                    fee_adjusted_profit=float(row.get("fee_adjusted_profit_if_right", 0)),
-                    actual_outcome=row.get("actual_outcome", "PENDING"),
-                    actual_pnl=float(row.get("actual_pnl") or 0),
-                ))
-            except (ValueError, KeyError):
-                continue
+
+    with open(csv_path, newline="", encoding="utf-8") as f:
+        raw_rows = list(csv.DictReader(f))
+
+    logger.debug("Reviewer [CSV]: read %d raw rows from %s", len(raw_rows), csv_path)
+
+    for i, row in enumerate(raw_rows):
+        logger.debug(
+            "Reviewer [CSV] row %d: side=%s ask=%s P_true=%s Z_score=%s outcome=%s pnl=%s",
+            i,
+            row.get("token_side", "?"),
+            row.get("ask_price", "?"),
+            row.get("P_true", "?"),
+            row.get("Z_score", "?"),
+            row.get("actual_outcome", "?"),
+            row.get("actual_pnl", "?"),
+        )
+        try:
+            trades.append(Trade(
+                timestamp=row.get("timestamp", ""),
+                market_id=row.get("market_id", ""),
+                btc_price=float(row.get("btc_price") or 0),
+                opening_price=float(row.get("opening_price") or 0),
+                token_side=row.get("token_side", ""),
+                ask_price=float(row.get("ask_price") or 0),
+                p_true=float(row.get("P_true") or 0.5),
+                z_score=float(row.get("Z_score") or 0),
+                expected_value=float(row.get("expected_value") or 0),
+                would_execute=row.get("would_execute", "False").strip().lower() == "true",
+                fee_adjusted_profit=float(row.get("fee_adjusted_profit_if_right") or 0),
+                actual_outcome=row.get("actual_outcome", "PENDING"),
+                actual_pnl=float(row.get("actual_pnl") or 0),
+            ))
+        except (TypeError, ValueError) as exc:
+            logger.warning("Reviewer [CSV]: skipped row %d due to parse error: %s | row=%s", i, exc, row)
+
+    resolved = sum(1 for t in trades if t.actual_outcome in ("WIN", "LOSS"))
+    logger.info(
+        "Reviewer [CSV]: loaded %d rows (%d resolved, %d pending) from %s",
+        len(trades), resolved, len(trades) - resolved, csv_path,
+    )
     return trades
 
 
@@ -112,7 +195,6 @@ def _load_trades(csv_path: str) -> list[Trade]:
 # ---------------------------------------------------------------------------
 
 def _detect_low_z_losses(losses: list[Trade]) -> Optional[LossPattern]:
-    """Losses where |Z| was low (low confidence) — Z threshold too permissive."""
     low_z = [t for t in losses if abs(t.z_score) < 0.8]
     if len(low_z) >= 3:
         return LossPattern(
@@ -125,7 +207,6 @@ def _detect_low_z_losses(losses: list[Trade]) -> Optional[LossPattern]:
 
 
 def _detect_high_ask_losses(losses: list[Trade]) -> Optional[LossPattern]:
-    """Losses where ask was high — overpaying for shares with thin margin."""
     high_ask = [t for t in losses if t.ask_price > 0.80]
     if len(high_ask) >= 3:
         return LossPattern(
@@ -138,11 +219,7 @@ def _detect_high_ask_losses(losses: list[Trade]) -> Optional[LossPattern]:
 
 
 def _detect_wrong_direction(losses: list[Trade], wins: list[Trade]) -> Optional[LossPattern]:
-    """
-    Loss rate is higher on one side (UP vs DOWN).
-    Suggests a directional bias that momentum filtering could correct.
-    """
-    loss_up = sum(1 for t in losses if t.token_side == "UP")
+    loss_up   = sum(1 for t in losses if t.token_side == "UP")
     loss_down = sum(1 for t in losses if t.token_side == "DOWN")
     if not losses:
         return None
@@ -159,13 +236,6 @@ def _detect_wrong_direction(losses: list[Trade], wins: list[Trade]) -> Optional[
 
 
 def _detect_late_entry(losses: list[Trade]) -> Optional[LossPattern]:
-    """
-    If mean Z of losses is not much lower than wins, the model is fine but
-    entries may be timed poorly (window too wide — catching mean-reversion).
-    Tighten window_start.
-    """
-    # Proxy: losses with Z > 1.5 suggest the model was confident but still lost.
-    # This implies late entry / price reversal in the final seconds.
     confident_losses = [t for t in losses if abs(t.z_score) > 1.5]
     if len(confident_losses) >= 3:
         return LossPattern(
@@ -182,12 +252,31 @@ def _detect_late_entry(losses: list[Trade]) -> Optional[LossPattern]:
 # ---------------------------------------------------------------------------
 
 def analyse(csv_path: str = PAPER_TRADES_CSV) -> AnalysisReport:
-    """Load trades and return a full AnalysisReport."""
-    all_trades = _load_trades(csv_path)
+    """
+    Load trades and return a full AnalysisReport.
+
+    Tries trading_bot.db first (always has resolved outcomes).
+    Falls back to paper_trades.csv if the DB is empty.
+    """
+    # ── Primary: DB ──────────────────────────────────────────────────────────
+    all_trades = _load_trades_from_db()
+
+    # ── Fallback: CSV ────────────────────────────────────────────────────────
+    if not all_trades:
+        logger.info("Reviewer: DB returned 0 trades, falling back to CSV at %s", csv_path)
+        all_trades = _load_trades_from_csv(csv_path)
+
+    # ── Filter ───────────────────────────────────────────────────────────────
+    # DB trades: would_execute=True always; CSV trades: honour the flag
     executed = [t for t in all_trades if t.would_execute]
-    wins = [t for t in executed if t.actual_outcome == "WIN"]
-    losses = [t for t in executed if t.actual_outcome == "LOSS"]
-    pending = [t for t in executed if t.actual_outcome == "PENDING"]
+    wins     = [t for t in executed if t.actual_outcome == "WIN"]
+    losses   = [t for t in executed if t.actual_outcome == "LOSS"]
+    pending  = [t for t in executed if t.actual_outcome == "PENDING"]
+
+    logger.debug(
+        "Reviewer filter: total=%d executed=%d wins=%d losses=%d pending=%d",
+        len(all_trades), len(executed), len(wins), len(losses), len(pending),
+    )
 
     def safe_mean(vals: list[float]) -> float:
         return sum(vals) / len(vals) if vals else 0.0
@@ -195,11 +284,7 @@ def analyse(csv_path: str = PAPER_TRADES_CSV) -> AnalysisReport:
     win_rate = len(wins) / len(executed) if executed else 0.0
 
     patterns: list[LossPattern] = []
-    for detector in (
-        _detect_low_z_losses,
-        _detect_high_ask_losses,
-        _detect_late_entry,
-    ):
+    for detector in (_detect_low_z_losses, _detect_high_ask_losses, _detect_late_entry):
         p = detector(losses)
         if p:
             patterns.append(p)
