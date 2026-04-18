@@ -1,0 +1,2 @@
+timestamp,market_id,token_side,ask_price,P_true,Z_score,expected_value,would_execute,actual_outcome,actual_pnl,experiment_id
+2026-04-17T18:05:10.101542+00:00,2000945,UP,0.5700,0.8008,0.8446,0.2320,True,PENDING,,exp_20260417_180114_24003f

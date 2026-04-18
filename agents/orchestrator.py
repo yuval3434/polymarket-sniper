@@ -35,6 +35,7 @@ from agents.position_manager import PositionManager
 from config                  import STARTING_BANK_USDC
 from core.database           import init_db, async_log_tick
 from core.trade_server       import trade_server_loop
+from core.git_sync           import git_sync_loop
 from core.pnl_tracker        import PnLTracker
 from core.risk_manager       import RiskManager
 from learning_agent.agent    import LearningAgent
@@ -110,6 +111,7 @@ class Orchestrator:
             self._run_agent("Developer",        self.developer.run),
             self._run_agent("LearningAgent",    self.learning_agent.run),
             self._run_agent("TradeServer",      trade_server_loop),
+            self._run_agent("GitSync",          git_sync_loop),
             self._run_agent("PingMonitor",      lambda: ping_monitor_loop(self.state)),
             self._run_agent("LoopLagSensor",    loop_lag_sensor),
             *extra,
