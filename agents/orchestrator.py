@@ -90,33 +90,42 @@ class Orchestrator:
     ) -> None:
         """
         Launch all coroutines under a supervised gather.
-        If any agent crashes it is logged and restarted (except kill_switch).
+        Restartable agents are passed as callables (factories) so _run_agent
+        can create a fresh coroutine on each restart — coroutine objects are
+        one-shot and cannot be re-awaited after completion or failure.
         """
+        extra = (
+            [self._run_agent("ClaimMonitor", order_manager.claim_monitor_loop)]
+            if order_manager else []
+        )
         await asyncio.gather(
             discovery_coro,
             binance_coro,
             polymarket_coro,
             sniper_coro,
             kill_switch_coro,
-            self._run_agent("PositionMonitor",  self.position_manager.monitor_loop(self.state)),
-            self._run_agent("Evaluator",         self.evaluator.run()),
-            self._run_agent("OSINTResearcher",   self.osint_researcher.run()),
-            self._run_agent("Developer",         self.developer.run()),
-            self._run_agent("LearningAgent",     self.learning_agent.run()),
-            self._run_agent("TradeServer",       trade_server_loop()),
-            *([self._run_agent("ClaimMonitor", order_manager.claim_monitor_loop())] if order_manager else []),
-            self._run_agent("PingMonitor",       ping_monitor_loop(self.state)),
-            self._run_agent("LoopLagSensor",     loop_lag_sensor()),
+            self._run_agent("PositionMonitor", lambda: self.position_manager.monitor_loop(self.state)),
+            self._run_agent("Evaluator",        self.evaluator.run),
+            self._run_agent("OSINTResearcher",  self.osint_researcher.run),
+            self._run_agent("Developer",        self.developer.run),
+            self._run_agent("LearningAgent",    self.learning_agent.run),
+            self._run_agent("TradeServer",      trade_server_loop),
+            self._run_agent("PingMonitor",      lambda: ping_monitor_loop(self.state)),
+            self._run_agent("LoopLagSensor",    loop_lag_sensor),
+            *extra,
             self._tick_logger(),
             return_exceptions=False,
         )
 
-    async def _run_agent(self, name: str, coro) -> None:
-        """Wrap a coroutine with auto-restart on unexpected failure."""
+    async def _run_agent(self, name: str, coro_fn) -> None:
+        """
+        Supervised agent wrapper. Accepts a callable (not a coroutine object)
+        so a fresh coroutine is created on every restart attempt.
+        """
         while True:
             try:
-                await coro
-                break  # normal exit
+                await coro_fn()
+                break  # clean exit
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
