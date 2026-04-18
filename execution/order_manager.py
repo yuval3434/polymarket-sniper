@@ -31,6 +31,8 @@ except ImportError:
     logger.warning("py-clob-client not installed — live execution disabled")
 
 _MAKER_WAIT_SECONDS = 3.0
+_USDC_ADDRESS  = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"  # USDC.e on Polygon
+_ZERO_BYTES32  = "0x" + "0" * 64                               # parent_collection_id
 
 
 def _check_response(result: dict | None, label: str) -> None:
@@ -103,6 +105,51 @@ class OrderManager:
             logger.info("POST-TRADE positions: %s", positions)
         except Exception as exc:
             logger.warning("get_positions() failed: %s", exc)
+
+    async def claim_winnings(self, condition_id: str, token_side: str) -> bool:
+        """
+        Redeem winning conditional tokens after market expiry resolution.
+        Called automatically for every EXPIRY WIN — fire-and-forget.
+
+        Binary market index sets (Gnosis ConditionalTokens bitmask):
+          index_set=[1]  →  outcome 0 (UP / YES)
+          index_set=[2]  →  outcome 1 (DOWN / NO)
+        """
+        if self.dry_run or self._client is None:
+            logger.info("[PAPER] Would auto-claim: condition_id=%s side=%s", condition_id, token_side)
+            return True
+
+        index_set = [1] if token_side == "UP" else [2]
+        loop = asyncio.get_event_loop()
+
+        try:
+            await loop.run_in_executor(
+                None,
+                lambda: self._client.redeem_positions(
+                    reward_token=_USDC_ADDRESS,
+                    condition_id=condition_id,
+                    parent_collection_id=_ZERO_BYTES32,
+                    index_sets=index_set,
+                ),
+            )
+            logger.info(
+                "AUTO-CLAIM submitted: condition_id=%s side=%s index_set=%s",
+                condition_id, token_side, index_set,
+            )
+            return True
+        except AttributeError:
+            # Older SDK version without redeem_positions()
+            logger.warning(
+                "Auto-claim: redeem_positions() not in this SDK version — "
+                "claim manually at polymarket.com | condition_id=%s", condition_id,
+            )
+            return False
+        except Exception as exc:
+            logger.error(
+                "Auto-claim failed: %s | condition_id=%s side=%s — "
+                "claim manually at polymarket.com", exc, condition_id, token_side,
+            )
+            return False
 
     async def snipe(
         self,

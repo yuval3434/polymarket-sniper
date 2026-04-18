@@ -352,6 +352,16 @@ class PositionManager:
         pnl_pct = ((exit_price / pos.entry_price) - 1.0) * 100
         await self._finalise(pos, exit_price, "EXPIRY", pnl_usd, pnl_pct, win)
 
+        # Auto-claim winning tokens on-chain immediately after expiry WIN
+        if win and not pos.is_dry_run and self.order_manager is not None:
+            logger.info(
+                "Auto-claim triggered: condition_id=%s side=%s",
+                pos.condition_id, pos.token_side,
+            )
+            asyncio.create_task(
+                self.order_manager.claim_winnings(pos.condition_id, pos.token_side)
+            )
+
     async def close_position_with_resolution(
         self,
         resolution: str,
