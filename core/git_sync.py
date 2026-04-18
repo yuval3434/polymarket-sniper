@@ -56,7 +56,7 @@ def export_trades_to_csv() -> int:
     try:
         from core.database import get_conn
         with get_conn() as conn:
-            rows = conn.execute("SELECT * FROM trades ORDER BY id ASC").fetchall()
+            rows = conn.execute("SELECT * FROM trades WHERE dry_run=0 ORDER BY id ASC").fetchall()
         trades = [dict(r) for r in rows]
     except Exception as exc:
         logger.warning("git_sync: DB export failed — %s", exc)

@@ -245,7 +245,7 @@ def fetch_resolved_trades_with_context(path: str = DB_PATH) -> list[dict]:
     """
     with get_conn(path) as conn:
         trade_rows = conn.execute(
-            "SELECT * FROM trades ORDER BY id ASC"
+            "SELECT * FROM trades WHERE dry_run=0 ORDER BY id ASC"
         ).fetchall()
 
         dec_rows = conn.execute(
