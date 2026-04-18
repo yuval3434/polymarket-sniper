@@ -48,7 +48,7 @@ def taker_fee_bps(p_true: float) -> int:
     Return the fee in basis points (integer) for inclusion in order signing.
     Required by Polymarket CLOB API — orders missing feeRateBps are rejected.
     """
-    return round(dynamic_taker_fee(p_true) * 10_000)
+    return 1000
 
 
 def expected_value(p_true: float, ask_price: float, is_maker: bool = False) -> float:
