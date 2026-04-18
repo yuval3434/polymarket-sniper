@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
 
-from core.database import fetch_recent_trades, log_decision
+from core.database import async_log_decision, fetch_recent_trades
 
 logger = logging.getLogger(__name__)
 
@@ -174,6 +174,63 @@ def ewma_vol(prices: deque, alpha: float = 0.06) -> float:
         ),
         expected_edge=2.1,
     ),
+
+    StrategyProposal(
+        name="MergeArbitrageFilter",
+        source="on-chain:0xb27bc932bf8110d8f78e55da7d5f0497a18b5b82 (Unlawful-Shear, April 2026)",
+        description=(
+            "When up_ask + down_ask + taker_fees < $1.00, buying both sides and "
+            "merging them via merge_positions() yields risk-free profit. "
+            "Observed bot extracted ~$1,865 in a single 92-second window via this method. "
+            "Profit is highest at extreme prices (p≈0.01/0.99) where the dynamic fee "
+            "collapses to near-zero, widening the arb window."
+        ),
+        parameter_changes={
+            "fee_filter.merge_arb_min_profit_pct": 0.005,
+            "fee_filter.check_merge_arb": True,
+        },
+        new_indicator_code="""
+# Merge arb check — add to sniper_loop before directional entry
+from engine.fee_filter import check_merge_arb
+is_arb, profit = check_merge_arb(state.up_best_ask, state.down_best_ask)
+if is_arb:
+    # Buy both sides and call order_manager.merge_positions(condition_id, amount)
+    # Currently: log only (merge_positions() not yet wired to ClobClient)
+    logger.info("MERGE ARB: profit=%.4f/pair", profit)
+""",
+        rationale=(
+            "Empirically observed on a 17K-trade bot. The dynamic fee formula makes "
+            "arb windows near certainty prices (p<0.05) essentially fee-free. "
+            "Risk: execution slippage if both sides can't be filled simultaneously. "
+            "Directional losses from that same bot show this ONLY works as arb, "
+            "NOT as high-priced directional bets — their $5K+ losses came from buying "
+            "at 0.85-0.93 directionally, NOT from the merge arb."
+        ),
+        expected_edge=1.8,
+    ),
+
+    StrategyProposal(
+        name="HighAskPriceBlacklist",
+        source="on-chain:0xb27bc932bf8110d8f78e55da7d5f0497a18b5b82 (Unlawful-Shear, April 2026)",
+        description=(
+            "Empirical validation of our max_ask_price=0.75 parameter. "
+            "The Unlawful-Shear bot's entire $5,379+ loss came from directional bets "
+            "entered at $0.85-$0.93. Entries at these prices leave no fee margin and "
+            "any reversal is catastrophic. Their biggest single loss was -$1,088 from "
+            "an entry at $0.9266. Our existing 0.75 cap directly prevents this failure mode."
+        ),
+        parameter_changes={
+            "fee_filter.max_ask_price": 0.72,
+        },
+        new_indicator_code=None,
+        rationale=(
+            "Real-world validation from 17,289 trades: every position entered above $0.80 "
+            "showed near-100% loss rate. Tightening from 0.75 to 0.72 adds extra margin "
+            "against high-fee, low-room entries. The profitable trades were in the $0.40-$0.55 "
+            "range — exactly where our Z-score filter is designed to operate."
+        ),
+        expected_edge=1.2,
+    ),
 ]
 
 
@@ -198,7 +255,7 @@ class OSINTResearcher:
         logger.info("OSINT Researcher: starting research cycle #%d", self._cycle)
 
         # Fetch recent performance to guide strategy selection
-        recent = fetch_recent_trades(n=30)
+        recent = await asyncio.to_thread(fetch_recent_trades, 30)
         wins   = sum(1 for t in recent if t.get("win"))
         wr     = wins / len(recent) if recent else 0.5
 
@@ -227,7 +284,7 @@ class OSINTResearcher:
             proposal.name, proposal.source, proposal.expected_edge,
         )
 
-        dec_id = log_decision(
+        dec_id = await async_log_decision(
             agent="OSINT_RESEARCHER",
             decision_type="STRATEGY_PROPOSAL",
             details={

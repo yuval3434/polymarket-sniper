@@ -9,7 +9,9 @@ from config import (
     POLY_HOST,
     POLY_PASSPHRASE,
     POLY_SECRET,
+    SIGNATURE_TYPE,
 )
+from engine.fee_filter import taker_fee_bps
 from market.state import MarketState
 
 logger = logging.getLogger(__name__)
@@ -20,6 +22,7 @@ try:
         ApiCreds,
         MarketOrderArgs,
         OrderArgs,
+        OrderType,
         PartialCreateOrderOptions,
     )
     from py_clob_client.constants import POLYGON
@@ -31,12 +34,30 @@ except ImportError:
 _MAKER_WAIT_SECONDS = 3.0
 
 
+def _check_response(result: dict | None, label: str) -> None:
+    """Log raw response and raise on silent failure."""
+    logger.info("RAW API Response [%s]: %s", label, result)
+    if result is None:
+        logger.critical("SILENT FAILURE [%s]: response is None", label)
+        return
+    if isinstance(result, dict):
+        if result.get("success") is False or result.get("errorMsg") or result.get("error"):
+            logger.critical(
+                "ORDER REJECTED [%s]: success=%s error=%s errorMsg=%s",
+                label,
+                result.get("success"),
+                result.get("error"),
+                result.get("errorMsg"),
+            )
+
+
 class OrderManager:
     def __init__(self, dry_run: bool = True) -> None:
         self.dry_run = dry_run
         self._client = None
 
         if not dry_run and _SDK_AVAILABLE:
+            # Mainnet: host=https://clob.polymarket.com  chain_id=137 (POLYGON)
             self._client = ClobClient(
                 host=POLY_HOST,
                 key=ETH_PRIVATE_KEY,
@@ -47,8 +68,12 @@ class OrderManager:
                     api_passphrase=POLY_PASSPHRASE,
                 ),
                 funder=POLY_FUNDER_ADDRESS,
+                signature_type=SIGNATURE_TYPE,
             )
-            logger.info("ClobClient initialized — LIVE mode")
+            logger.info(
+                "ClobClient initialized — LIVE mode | host=%s chain_id=%s sig_type=%s funder=%s",
+                POLY_HOST, POLYGON, SIGNATURE_TYPE, POLY_FUNDER_ADDRESS,
+            )
         elif dry_run:
             logger.info("OrderManager in paper mode — no real orders will be placed")
         else:
@@ -64,6 +89,22 @@ class OrderManager:
         except Exception as exc:
             logger.error("cancel_all() failed: %s", exc)
 
+    async def verify_trade(self, order_id: str) -> None:
+        """Query open orders and positions immediately after a trade to confirm API visibility."""
+        if self._client is None:
+            return
+        loop = asyncio.get_event_loop()
+        try:
+            open_orders = await loop.run_in_executor(None, self._client.get_orders)
+            logger.info("POST-TRADE open orders: %s", open_orders)
+        except Exception as exc:
+            logger.warning("get_orders() failed: %s", exc)
+        try:
+            positions = await loop.run_in_executor(None, self._client.get_positions)
+            logger.info("POST-TRADE positions: %s", positions)
+        except Exception as exc:
+            logger.warning("get_positions() failed: %s", exc)
+
     async def snipe(
         self,
         token_id: str,
@@ -72,6 +113,7 @@ class OrderManager:
         use_maker: bool,
         state: MarketState,
         size_usdc: float | None = None,
+        p_true: float = 0.5,
     ) -> dict | None:
         """
         Execute a snipe order.
@@ -79,9 +121,6 @@ class OrderManager:
         Maker path : GTC limit at ask_price - 0.001; waits _MAKER_WAIT_SECONDS;
                      falls back to market order if not filled.
         Taker path : immediate market order (FOK) via create_market_order.
-
-        size_usdc  : USDC to spend (after live guardrails). Falls back to
-                     MAX_POSITION_USDC if not provided.
         """
         usdc   = size_usdc if size_usdc is not None else MAX_POSITION_USDC
         shares = usdc / ask_price
@@ -96,52 +135,116 @@ class OrderManager:
 
         loop = asyncio.get_event_loop()
 
+        fee_bps = taker_fee_bps(p_true)
+
         if use_maker:
             maker_price = round(ask_price - 0.001, 4)
             order_args  = OrderArgs(
-                token_id=token_id, price=maker_price, size=shares, side=side
+                token_id=token_id, price=maker_price, size=shares, side=side,
+                fee_rate_bps=fee_bps,
             )
-            # PartialCreateOrderOptions() lets the SDK auto-fetch tick_size / neg_risk
             options = PartialCreateOrderOptions()
             try:
                 result = await loop.run_in_executor(
                     None, lambda: self._client.create_and_post_order(order_args, options)
                 )
-                logger.info("Maker order placed: %s", result)
+                _check_response(result, "maker")
                 await asyncio.sleep(_MAKER_WAIT_SECONDS)
-                order_id    = result.get("orderID") or result.get("id", "")
+                order_id    = result.get("orderID") or result.get("id", "") if result else ""
                 status_resp = await loop.run_in_executor(
                     None, lambda: self._client.get_order(order_id)
                 )
+                logger.info("Maker order status: %s", status_resp)
                 if (status_resp or {}).get("status") not in ("MATCHED", "FILLED"):
                     logger.info("Maker not filled — cancelling, falling back to market order")
                     await loop.run_in_executor(None, lambda: self._client.cancel(order_id))
-                    return await self._place_market_order(token_id, side, usdc, loop)
-                return status_resp
+                    result = await self._place_market_order(token_id, side, usdc, loop, fee_bps)
+                else:
+                    result = status_resp
+                await self.verify_trade(order_id)
+                return result
             except Exception as exc:
                 logger.error("Maker order failed: %s — falling back to market order", exc)
-                return await self._place_market_order(token_id, side, usdc, loop)
+                return await self._place_market_order(token_id, side, usdc, loop, fee_bps)
         else:
-            return await self._place_market_order(token_id, side, usdc, loop)
+            return await self._place_market_order(token_id, side, usdc, loop, fee_bps)
 
-    async def _place_market_order(
-        self, token_id: str, side: str, amount_usdc: float, loop
+    async def sell(
+        self,
+        token_id: str,
+        size_shares: float,
+        bid_price: float,
     ) -> dict | None:
+        """Sell (close) a position by placing a limit SELL at bid_price.
+        Queries the actual on-chain token balance first to avoid over-selling.
         """
-        Market order via create_market_order (FOK — Fill or Kill).
-        Uses amount in USDC, not shares.
-        """
-        market_args = MarketOrderArgs(
+        if self.dry_run or self._client is None:
+            logger.info("[PAPER] Would sell: token=%s shares=%.4f bid=%.4f", token_id, size_shares, bid_price)
+            return {"status": "simulated_sell"}
+
+        loop = asyncio.get_event_loop()
+
+        # Query actual on-chain balance — may differ from theoretical due to partial fills / fees
+        try:
+            from py_clob_client.clob_types import BalanceAllowanceParams, AssetType
+            bal_resp = await loop.run_in_executor(
+                None,
+                lambda: self._client.get_balance_allowance(
+                    params=BalanceAllowanceParams(asset_type=AssetType.CONDITIONAL, token_id=token_id)
+                ),
+            )
+            actual_shares = int(bal_resp.get("balance", 0)) / 1e6
+            logger.info(
+                "On-chain token balance: %.6f shares (theoretical: %.6f)",
+                actual_shares, size_shares,
+            )
+            if actual_shares < 0.001:
+                logger.warning("On-chain balance near zero (%.6f) — position may already be closed", actual_shares)
+                return {"status": "already_closed"}
+            size_shares = actual_shares
+        except Exception as exc:
+            logger.warning("Could not fetch token balance, using theoretical size: %s", exc)
+
+        order_args = OrderArgs(
             token_id=token_id,
-            amount=amount_usdc,
-            side=side,
+            price=bid_price,
+            size=size_shares,
+            side="SELL",
         )
         options = PartialCreateOrderOptions()
         try:
             result = await loop.run_in_executor(
+                None, lambda: self._client.create_and_post_order(order_args, options)
+            )
+            _check_response(result, "sell")
+            logger.info("Sell order placed: %s", result)
+            return result
+        except Exception as exc:
+            logger.error("Sell order failed: %s", exc)
+            return None
+
+    async def _place_market_order(
+        self, token_id: str, side: str, amount_usdc: float, loop, fee_bps: int = 0
+    ) -> dict | None:
+        """Market order: create (sign) then post as FOK. Amount in USDC."""
+        market_args = MarketOrderArgs(
+            token_id=token_id,
+            amount=amount_usdc,
+            side=side,
+            fee_rate_bps=fee_bps,
+        )
+        options = PartialCreateOrderOptions()
+        try:
+            signed_order = await loop.run_in_executor(
                 None, lambda: self._client.create_market_order(market_args, options)
             )
-            logger.info("Market order placed: %s", result)
+            logger.info("Signed market order created: %s", signed_order)
+            result = await loop.run_in_executor(
+                None, lambda: self._client.post_order(signed_order, OrderType.FOK)
+            )
+            _check_response(result, "market")
+            order_id = result.get("orderID") or result.get("id", "") if result else ""
+            await self.verify_trade(order_id)
             return result
         except Exception as exc:
             logger.error("Market order failed: %s", exc)

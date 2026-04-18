@@ -6,6 +6,7 @@ Prints a formatted live dashboard to stdout after every closed trade.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -110,14 +111,24 @@ class PnLTracker:
         self._print_dashboard()
 
         if self.session.total % self._perf_log_interval == 0:
-            log_performance(
-                total_trades=self.session.total,
-                win_rate=self.session.win_rate,
-                total_pnl_usd=self.session.total_pnl_usd,
-                avg_pnl_pct=self.session.avg_pnl_pct,
-                max_drawdown=self.session.max_drawdown,
-                strategy_version=self.strategy_version,
-            )
+            # Fire-and-forget into thread pool — must not block the event loop.
+            try:
+                loop = asyncio.get_running_loop()
+                loop.run_in_executor(
+                    None, log_performance,
+                    self.session.total, self.session.win_rate,
+                    self.session.total_pnl_usd, self.session.avg_pnl_pct,
+                    self.session.max_drawdown, self.strategy_version,
+                )
+            except RuntimeError:
+                log_performance(
+                    total_trades=self.session.total,
+                    win_rate=self.session.win_rate,
+                    total_pnl_usd=self.session.total_pnl_usd,
+                    avg_pnl_pct=self.session.avg_pnl_pct,
+                    max_drawdown=self.session.max_drawdown,
+                    strategy_version=self.strategy_version,
+                )
 
     def _print_trade(self, t: TradeRecord) -> None:
         direction = "▲ UP  " if t.token_side == "UP" else "▼ DOWN"

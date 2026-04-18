@@ -293,6 +293,23 @@ def fetch_resolved_trades_with_context(path: str = DB_PATH) -> list[dict]:
     return enriched
 
 
+# ---------------------------------------------------------------------------
+# Async wrappers — offload every write to a thread so the event loop stays free
+# ---------------------------------------------------------------------------
+
+async def async_log_tick(**kwargs) -> None:
+    await asyncio.to_thread(log_tick, **kwargs)
+
+async def async_log_trade(**kwargs) -> int:
+    return await asyncio.to_thread(log_trade, **kwargs)
+
+async def async_log_decision(**kwargs) -> int:
+    return await asyncio.to_thread(log_decision, **kwargs)
+
+async def async_update_decision_outcome(decision_id: int, outcome: str) -> None:
+    await asyncio.to_thread(update_decision_outcome, decision_id, outcome)
+
+
 def fetch_recent_ticks(market_id: str, n: int = 360, path: str = DB_PATH) -> list[dict]:
     with get_conn(path) as conn:
         rows = conn.execute(

@@ -32,11 +32,14 @@ from agents.developer        import DeveloperAgent
 from agents.evaluator        import Evaluator
 from agents.osint_researcher import OSINTResearcher
 from agents.position_manager import PositionManager
-from core.database           import init_db, log_tick
+from config                  import STARTING_BANK_USDC
+from core.database           import init_db, async_log_tick
 from core.pnl_tracker        import PnLTracker
 from core.risk_manager       import RiskManager
 from learning_agent.agent    import LearningAgent
 from market.state            import MarketState
+from monitor.loop_lag        import loop_lag_sensor
+from monitor.ping_monitor    import ping_monitor_loop
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +57,7 @@ class Orchestrator:
 
         # Shared services
         self.pnl_tracker   = PnLTracker(strategy_version=1)
-        self.risk_manager  = RiskManager(starting_bank=100.0)
+        self.risk_manager  = RiskManager(starting_bank=STARTING_BANK_USDC)
 
         # Agents
         self.position_manager = PositionManager(
@@ -98,6 +101,8 @@ class Orchestrator:
             self._run_agent("OSINTResearcher",   self.osint_researcher.run()),
             self._run_agent("Developer",         self.developer.run()),
             self._run_agent("LearningAgent",     self.learning_agent.run()),
+            self._run_agent("PingMonitor",       ping_monitor_loop(self.state)),
+            self._run_agent("LoopLagSensor",     loop_lag_sensor()),
             self._tick_logger(),
             return_exceptions=False,
         )
@@ -126,7 +131,7 @@ class Orchestrator:
             if time.monotonic() - last >= _TICK_LOG_INTERVAL:
                 last = time.monotonic()
                 if self.state.btc_price > 0:
-                    log_tick(
+                    await async_log_tick(
                         market_id=self.state.market_id,
                         btc_price=self.state.btc_price,
                         up_ask=self.state.up_best_ask,

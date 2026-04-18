@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 # Defaults (overridden by strategy_config.json)
 _MAX_DRAWDOWN_HALT_USD  = float(os.environ.get("MAX_DRAWDOWN_HALT_USD", "50.0"))
-_MAX_DRAWDOWN_HALT_PCT  = float(os.environ.get("MAX_DRAWDOWN_HALT_PCT", "20.0"))  # % of starting bank
+_MAX_DRAWDOWN_HALT_PCT  = float(os.environ.get("MAX_DRAWDOWN_HALT_PCT", "30.0"))  # % of starting bank (was 20%, too tight for $10 bets)
 _KELLY_FRACTION         = float(os.environ.get("KELLY_FRACTION", "0.25"))         # quarter-Kelly
 _MIN_BET_USDC           = float(os.environ.get("MIN_BET_USDC", "1.0"))
 _MAX_BET_USDC           = float(os.environ.get("MAX_BET_USDC", "25.0"))

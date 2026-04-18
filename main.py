@@ -36,7 +36,7 @@ def _install_fast_loop() -> None:
 
 import engine.strategy_loader as _scfg
 from config import validate_live_credentials
-from engine.fee_filter import expected_value, passes_fee_filter
+from engine.fee_filter import check_merge_arb, expected_value, passes_fee_filter
 from engine.probability import calculate_probability
 from execution.order_manager import OrderManager
 from market.discovery import discovery_loop
@@ -98,6 +98,9 @@ async def sniper_loop(
     import time as _time
     _last_status = 0.0
 
+    _last_price_reject_key = ("", 0.0)  # (market_id, ask_price) — suppress repeat prints
+    _cb_logged = False   # suppress circuit-breaker spam — log once when it trips
+
     while True:
         await asyncio.sleep(_SNIPE_POLL_INTERVAL)
 
@@ -106,9 +109,13 @@ async def sniper_loop(
         if state.kill_switch_active:
             continue
         if orchestrator.risk_manager.halted:
-            logger.warning("Sniper paused: circuit breaker — %s",
-                           orchestrator.risk_manager.halt_reason)
+            if not _cb_logged:
+                logger.warning("Sniper paused: circuit breaker — %s",
+                               orchestrator.risk_manager.halt_reason)
+                _cb_logged = True
             continue
+        else:
+            _cb_logged = False   # reset when breaker clears
 
         tau = state.seconds_to_expiry()
 
@@ -135,6 +142,19 @@ async def sniper_loop(
 
         if state.snipe_fired or orchestrator.position_manager.has_open_position:
             continue
+
+        # ── Merge arb scan (learned from Unlawful-Shear bot, April 2026) ──
+        # When up_ask + down_ask < 1 - fees, buying both sides and merging
+        # yields risk-free profit. Log it; execution requires merge_positions() impl.
+        if state.up_best_ask > 0 and state.down_best_ask > 0:
+            is_arb, arb_profit = check_merge_arb(state.up_best_ask, state.down_best_ask)
+            if is_arb:
+                logger.info(
+                    "MERGE ARB OPPORTUNITY: T-%.0fs | up=%.4f down=%.4f"
+                    " → profit=%.4f/share (%.2f%%)",
+                    tau, state.up_best_ask, state.down_best_ask,
+                    arb_profit, arb_profit * 100,
+                )
 
         P_up, P_down, Z = calculate_probability(state)
 
@@ -170,11 +190,14 @@ async def sniper_loop(
 
         max_entry = _scfg.max_ask_price()
         if ask_price > max_entry:
-            print(
-                f"\n  Trade Rejected: Price ${ask_price:.4f} exceeds"
-                f" max entry ${max_entry:.2f}"
-                f" | T-{tau:.0f}s  side={token_side}  Z={Z:.3f}"
-            )
+            reject_key = (state.market_id, round(ask_price, 4))
+            if reject_key != _last_price_reject_key:
+                print(
+                    f"\n  Trade Rejected: Price ${ask_price:.4f} exceeds"
+                    f" max entry ${max_entry:.2f}"
+                    f" | T-{tau:.0f}s  side={token_side}  Z={Z:.3f}"
+                )
+                _last_price_reject_key = reject_key
             continue
 
         should_execute, use_maker = passes_fee_filter(p_true, ask_price, best_bid, best_ask)
@@ -222,6 +245,7 @@ async def sniper_loop(
                     token_id=token_id, side="BUY",
                     ask_price=ask_price, use_maker=use_maker,
                     state=state, size_usdc=bet_usdc,
+                    p_true=p_true,
                 )
             )
 
@@ -241,6 +265,7 @@ async def main(dry_run: bool) -> None:
     state         = MarketState()
     order_manager = OrderManager(dry_run=dry_run)
     orchestrator  = Orchestrator(state=state, dry_run=dry_run)
+    orchestrator.position_manager.order_manager = order_manager
 
     await orchestrator.run_all(
         discovery_coro   = discovery_loop(state),
@@ -269,6 +294,8 @@ if __name__ == "__main__":
                         help="Score pending paper trades and exit")
     parser.add_argument("--status",  action="store_true",
                         help="Print latest session stats from DB and exit")
+    parser.add_argument("--reset-cb", action="store_true",
+                        help="Reset the circuit breaker and restart trading")
     args = parser.parse_args()
 
     _install_fast_loop()
@@ -287,6 +314,11 @@ if __name__ == "__main__":
         sys.exit(0)
 
     dry_run = (args.mode == "paper")
+
+    if args.reset_cb:
+        print("\n  Circuit breaker reset. Starting fresh session.\n")
+        # RiskManager is re-initialised on every run — restarting the bot is sufficient.
+        # This flag just makes the intent explicit and prints confirmation.
 
     if not dry_run:
         _live_mode_startup()   # validates credentials + 5s countdown, exits on failure

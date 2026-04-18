@@ -25,7 +25,7 @@ import os
 import uuid
 from datetime import datetime, timezone
 
-from core.database import log_decision, update_decision_outcome
+from core.database import async_log_decision, log_decision, update_decision_outcome
 from learning_agent.developer import (
     diff_configs,
     load_live_config,
@@ -145,7 +145,7 @@ class DeveloperAgent:
                 f"win_rate={result.win_rate:.1%} (need ≥15 trades, ≥52% WR)"
             )
             logger.info("Developer: %s — proposal rejected at backtest gate", reason)
-            log_decision(
+            await async_log_decision(
                 agent="DEVELOPER",
                 decision_type="BACKTEST_REJECT",
                 details={"reason": reason, "config": candidate},
@@ -173,7 +173,7 @@ class DeveloperAgent:
         logger.info(
             "Developer: candidate %s staged — starting paper trade validation", exp_id
         )
-        log_decision(
+        await async_log_decision(
             agent="DEVELOPER",
             decision_type="STAGE_CANDIDATE",
             details={
@@ -193,7 +193,7 @@ class DeveloperAgent:
             return
 
         from learning_agent.reviewer import analyse as reviewer_analyse
-        live_report = reviewer_analyse()
+        live_report = await asyncio.to_thread(reviewer_analyse)
 
         status, reason = evaluate(self._active_validation, live_report)
         logger.debug("Developer: validation status — %s", summarise(self._active_validation))
@@ -209,16 +209,17 @@ class DeveloperAgent:
                 f"  Experiment : {self._experiment_id}\n"
                 f"  Reason     : {reason}\n"
             )
-            promoted = promote_candidate(
+            await asyncio.to_thread(
+                promote_candidate,
                 paper_win_rate=vstate.win_rate,
                 paper_trades=vstate.settled_trades,
                 experiment_id=self._experiment_id,
             )
-            log_decision(
+            await async_log_decision(
                 agent="DEVELOPER",
                 decision_type="PROMOTE",
                 details={"experiment_id": self._experiment_id, "reason": reason},
-                )
+            )
             self._active_validation = None
             self._experiment_id = ""
 
@@ -232,8 +233,8 @@ class DeveloperAgent:
                 f"  Experiment : {self._experiment_id}\n"
                 f"  Reason     : {reason}\n"
             )
-            reject_candidate(reason, self._experiment_id)
-            log_decision(
+            await asyncio.to_thread(reject_candidate, reason, self._experiment_id)
+            await async_log_decision(
                 agent="DEVELOPER",
                 decision_type="REJECT",
                 details={"experiment_id": self._experiment_id, "reason": reason},
@@ -259,16 +260,22 @@ class DeveloperAgent:
     ) -> None:
         if not self._active_validation:
             return
-        log_shadow_trade(
-            market_id=market_id,
-            token_side=token_side,
-            ask_price=ask_price,
-            p_true=p_true,
-            z_score=z_score,
-            ev=ev,
-            would_execute=would_execute,
-            experiment_id=self._experiment_id,
-        )
+        # Fire-and-forget: CSV write must not block the sniper loop event loop.
+        try:
+            loop = asyncio.get_running_loop()
+            loop.run_in_executor(
+                None,
+                log_shadow_trade,
+                market_id, token_side, ask_price, p_true,
+                z_score, ev, would_execute, self._experiment_id,
+            )
+        except RuntimeError:
+            log_shadow_trade(
+                market_id=market_id, token_side=token_side,
+                ask_price=ask_price, p_true=p_true, z_score=z_score,
+                ev=ev, would_execute=would_execute,
+                experiment_id=self._experiment_id,
+            )
 
     # ------------------------------------------------------------------
     # Code snippet safe storage

@@ -14,6 +14,7 @@ POLY_SECRET: str = os.environ.get("POLY_SECRET", "")
 POLY_PASSPHRASE: str = os.environ.get("POLY_PASSPHRASE", "")
 POLY_FUNDER_ADDRESS: str = os.environ.get("POLY_FUNDER_ADDRESS", "")
 ETH_PRIVATE_KEY: str = os.environ.get("ETH_PRIVATE_KEY", "")
+SIGNATURE_TYPE: int = int(os.environ.get("SIGNATURE_TYPE", "0"))
 
 # --- Trading parameters ---
 # NOTE: DRY_RUN is the env-file default only.
@@ -59,12 +60,13 @@ def validate_live_credentials() -> None:
 
     logger.info("Live credential check passed ✓  (API key …%s)", POLY_API_KEY[-4:])
 MAX_POSITION_USDC: float = float(os.environ.get("MAX_POSITION_USDC", "10.0"))
+STARTING_BANK_USDC: float = float(os.environ.get("STARTING_BANK_USDC", "100.0"))
 SAFETY_BUFFER: float = float(os.environ.get("SAFETY_BUFFER", "0.03"))
 
 # --- Strategy parameters ---
 ORACLE_LAG_SECONDS: float = float(os.environ.get("ORACLE_LAG_SECONDS", "2.0"))
 SNIPE_WINDOW_START: int = int(os.environ.get("SNIPE_WINDOW_START", "12"))
-KILL_SWITCH_LATENCY_MS: int = int(os.environ.get("KILL_SWITCH_LATENCY_MS", "3000"))
+KILL_SWITCH_LATENCY_MS: int = int(os.environ.get("KILL_SWITCH_LATENCY_MS", "5000"))
 
 # --- Network endpoints ---
 POLY_HOST: str = os.environ.get("POLY_HOST", "https://clob.polymarket.com")
