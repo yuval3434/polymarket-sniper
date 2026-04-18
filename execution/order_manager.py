@@ -1,5 +1,8 @@
 import asyncio
+import json
 import logging
+import os
+import time
 
 from config import (
     ETH_PRIVATE_KEY,
@@ -30,9 +33,12 @@ except ImportError:
     _SDK_AVAILABLE = False
     logger.warning("py-clob-client not installed — live execution disabled")
 
-_MAKER_WAIT_SECONDS = 3.0
-_USDC_ADDRESS  = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"  # USDC.e on Polygon
-_ZERO_BYTES32  = "0x" + "0" * 64                               # parent_collection_id
+_MAKER_WAIT_SECONDS   = 3.0
+_USDC_ADDRESS         = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"  # USDC.e on Polygon
+_ZERO_BYTES32         = "0x" + "0" * 64                               # parent_collection_id
+_CLAIM_RETRY_INTERVAL = 120        # seconds between claim attempts
+_CLAIM_GIVE_UP_SECS   = 7200      # stop retrying after 2 hours
+_PENDING_CLAIMS_FILE  = os.path.join(os.path.dirname(os.path.dirname(__file__)), "pending_claims.json")
 
 
 def _check_response(result: dict | None, label: str) -> None:
@@ -106,22 +112,78 @@ class OrderManager:
         except Exception as exc:
             logger.warning("get_positions() failed: %s", exc)
 
-    async def claim_winnings(self, condition_id: str, token_side: str) -> bool:
-        """
-        Redeem winning conditional tokens after market expiry resolution.
-        Called automatically for every EXPIRY WIN — fire-and-forget.
+    # ------------------------------------------------------------------
+    # Auto-claim: persistent retry loop for post-expiry redemption
+    # ------------------------------------------------------------------
 
-        Binary market index sets (Gnosis ConditionalTokens bitmask):
-          index_set=[1]  →  outcome 0 (UP / YES)
-          index_set=[2]  →  outcome 1 (DOWN / NO)
+    def add_pending_claim(self, condition_id: str, token_side: str) -> None:
         """
+        Persist a pending claim to disk so it survives bot restarts.
+        The claim monitor loop picks it up and retries every 2 minutes.
+        """
+        claims = self._load_pending_claims()
+        # Avoid duplicates
+        if any(c["condition_id"] == condition_id for c in claims):
+            return
+        claims.append({
+            "condition_id": condition_id,
+            "token_side":   token_side,
+            "added_at":     time.time(),
+            "attempts":     0,
+        })
+        self._save_pending_claims(claims)
+        logger.info(
+            "Pending claim queued: condition_id=%s side=%s (will retry every %ds for up to %dmin)",
+            condition_id, token_side, _CLAIM_RETRY_INTERVAL, _CLAIM_GIVE_UP_SECS // 60,
+        )
+
+    async def claim_monitor_loop(self) -> None:
+        """
+        Runs forever. Every 2 minutes checks pending_claims.json and attempts
+        to redeem each entry. Removes on success; gives up after 2 hours.
+        """
+        logger.info("Claim monitor started — checking every %ds", _CLAIM_RETRY_INTERVAL)
+        while True:
+            await asyncio.sleep(_CLAIM_RETRY_INTERVAL)
+            claims = self._load_pending_claims()
+            if not claims:
+                continue
+
+            remaining = []
+            for claim in claims:
+                age = time.time() - claim["added_at"]
+                if age > _CLAIM_GIVE_UP_SECS:
+                    logger.critical(
+                        "AUTO-CLAIM gave up after %.0fmin: condition_id=%s side=%s — "
+                        "claim manually at polymarket.com",
+                        age / 60, claim["condition_id"], claim["token_side"],
+                    )
+                    continue  # drop from list
+
+                claim["attempts"] += 1
+                success = await self._attempt_claim(claim["condition_id"], claim["token_side"])
+                if success:
+                    logger.info(
+                        "AUTO-CLAIM SUCCESS (attempt %d, %.0fmin after expiry): condition_id=%s",
+                        claim["attempts"], age / 60, claim["condition_id"],
+                    )
+                else:
+                    logger.info(
+                        "Claim not ready yet (attempt %d, %.0fmin elapsed) — retrying in %ds | condition_id=%s",
+                        claim["attempts"], age / 60, _CLAIM_RETRY_INTERVAL, claim["condition_id"],
+                    )
+                    remaining.append(claim)
+
+            self._save_pending_claims(remaining)
+
+    async def _attempt_claim(self, condition_id: str, token_side: str) -> bool:
+        """Single claim attempt. Returns True if redeemed successfully."""
         if self.dry_run or self._client is None:
             logger.info("[PAPER] Would auto-claim: condition_id=%s side=%s", condition_id, token_side)
             return True
 
         index_set = [1] if token_side == "UP" else [2]
         loop = asyncio.get_event_loop()
-
         try:
             await loop.run_in_executor(
                 None,
@@ -132,24 +194,34 @@ class OrderManager:
                     index_sets=index_set,
                 ),
             )
-            logger.info(
-                "AUTO-CLAIM submitted: condition_id=%s side=%s index_set=%s",
-                condition_id, token_side, index_set,
-            )
             return True
         except AttributeError:
-            # Older SDK version without redeem_positions()
             logger.warning(
-                "Auto-claim: redeem_positions() not in this SDK version — "
-                "claim manually at polymarket.com | condition_id=%s", condition_id,
+                "Auto-claim: redeem_positions() not available in this SDK version. "
+                "Upgrade: pip install --upgrade py-clob-client | condition_id=%s", condition_id,
             )
-            return False
+            return True  # don't keep retrying if SDK doesn't support it
         except Exception as exc:
-            logger.error(
-                "Auto-claim failed: %s | condition_id=%s side=%s — "
-                "claim manually at polymarket.com", exc, condition_id, token_side,
-            )
+            logger.debug("Claim attempt failed (likely not resolved yet): %s", exc)
             return False
+
+    @staticmethod
+    def _load_pending_claims() -> list[dict]:
+        try:
+            if os.path.exists(_PENDING_CLAIMS_FILE):
+                with open(_PENDING_CLAIMS_FILE) as f:
+                    return json.load(f)
+        except Exception:
+            pass
+        return []
+
+    @staticmethod
+    def _save_pending_claims(claims: list[dict]) -> None:
+        try:
+            with open(_PENDING_CLAIMS_FILE, "w") as f:
+                json.dump(claims, f, indent=2)
+        except Exception as exc:
+            logger.warning("Could not save pending_claims.json: %s", exc)
 
     async def snipe(
         self,

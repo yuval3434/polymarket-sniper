@@ -262,6 +262,7 @@ async def main(dry_run: bool) -> None:
         kill_switch_coro = kill_switch_loop(
             state, cancel_all_fn=order_manager.cancel_all
         ),
+        order_manager    = order_manager,
     )
 
 

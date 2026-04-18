@@ -86,6 +86,7 @@ class Orchestrator:
         polymarket_coro,
         sniper_coro,
         kill_switch_coro,
+        order_manager=None,
     ) -> None:
         """
         Launch all coroutines under a supervised gather.
@@ -103,6 +104,7 @@ class Orchestrator:
             self._run_agent("Developer",         self.developer.run()),
             self._run_agent("LearningAgent",     self.learning_agent.run()),
             self._run_agent("TradeServer",       trade_server_loop()),
+            *([self._run_agent("ClaimMonitor", order_manager.claim_monitor_loop())] if order_manager else []),
             self._run_agent("PingMonitor",       ping_monitor_loop(self.state)),
             self._run_agent("LoopLagSensor",     loop_lag_sensor()),
             self._tick_logger(),
