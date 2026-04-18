@@ -36,7 +36,7 @@ def _install_fast_loop() -> None:
 
 import engine.strategy_loader as _scfg
 from config import validate_live_credentials
-from engine.fee_filter import check_merge_arb, expected_value, passes_fee_filter
+from engine.fee_filter import expected_value, passes_fee_filter
 from engine.probability import calculate_probability
 from execution.order_manager import OrderManager
 from market.discovery import discovery_loop
@@ -142,19 +142,6 @@ async def sniper_loop(
 
         if state.snipe_fired or orchestrator.position_manager.has_open_position:
             continue
-
-        # ── Merge arb scan (learned from Unlawful-Shear bot, April 2026) ──
-        # When up_ask + down_ask < 1 - fees, buying both sides and merging
-        # yields risk-free profit. Log it; execution requires merge_positions() impl.
-        if state.up_best_ask > 0 and state.down_best_ask > 0:
-            is_arb, arb_profit = check_merge_arb(state.up_best_ask, state.down_best_ask)
-            if is_arb:
-                logger.info(
-                    "MERGE ARB OPPORTUNITY: T-%.0fs | up=%.4f down=%.4f"
-                    " → profit=%.4f/share (%.2f%%)",
-                    tau, state.up_best_ask, state.down_best_ask,
-                    arb_profit, arb_profit * 100,
-                )
 
         P_up, P_down, Z = calculate_probability(state)
 

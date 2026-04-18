@@ -43,6 +43,14 @@ def _ensure_csv_header() -> None:
             writer.writeheader()
 
 
+def _write_decision_row(row: dict) -> None:
+    """Synchronous CSV append — runs in a thread executor to avoid blocking the event loop."""
+    _ensure_csv_header()
+    with open(_csv_path(), "a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=_FIELDNAMES)
+        writer.writerow(row)
+
+
 def log_decision(
     state: MarketState,
     token_side: str,         # "UP" or "DOWN"
@@ -53,8 +61,7 @@ def log_decision(
     ev: float,
     would_execute: bool,
 ) -> None:
-    """Append a single snipe decision row to the paper trades CSV."""
-    _ensure_csv_header()
+    """Append a single snipe decision row to the paper trades CSV (non-blocking)."""
     fee_adj_profit = (1.0 - ask_price) * p_true - ask_price * (1.0 - p_true) if would_execute else 0.0
     row = {
         "timestamp": datetime.now(tz=timezone.utc).isoformat(),
@@ -73,9 +80,8 @@ def log_decision(
         "actual_outcome": "PENDING",
         "actual_pnl": "",
     }
-    with open(_csv_path(), "a", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=_FIELDNAMES)
-        writer.writerow(row)
+    loop = asyncio.get_event_loop()
+    loop.run_in_executor(None, _write_decision_row, row)
     logger.info(
         "[PAPER] side=%s ask=%.4f P=%.3f Z=%.3f EV=%.4f execute=%s",
         token_side, ask_price, p_true, z_score, ev, would_execute,

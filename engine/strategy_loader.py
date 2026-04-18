@@ -115,6 +115,27 @@ def max_poly_spread() -> float:
 def strategy_version() -> int:
     return int(_load().get("_meta", {}).get("version", 1))
 
+def take_profit_pct() -> float:
+    return float(_load().get("exit", {}).get("take_profit_pct", 0.05))
+
+def take_profit_min_tau() -> float:
+    return float(_load().get("exit", {}).get("take_profit_min_tau", 30.0))
+
+def hte_p_threshold() -> float:
+    return float(_load().get("exit", {}).get("hte_p_threshold", 0.98))
+
+def hte_tau_threshold() -> float:
+    return float(_load().get("exit", {}).get("hte_tau_threshold", 15.0))
+
+def emergency_btc_move_pct() -> float:
+    return float(_load().get("exit", {}).get("emergency_btc_move_pct", 0.0005))
+
+def emergency_btc_window_s() -> float:
+    return float(_load().get("exit", {}).get("emergency_btc_window_s", 1.0))
+
+def max_gas_claim_pct() -> float:
+    return float(_load().get("exit", {}).get("max_gas_claim_pct", 0.02))
+
 def strategy_name() -> str:
     """Human-readable strategy label for the tracker/dashboard."""
     meta    = _load().get("_meta", {})

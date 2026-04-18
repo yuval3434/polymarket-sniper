@@ -3,17 +3,20 @@ import json
 import logging
 import math
 import os
+import socket
 import time
 from collections import deque
 
 import aiohttp
 
-from config import VOL_WINDOW_SECONDS
+from config import BINANCE_WS_URL, VOL_WINDOW_SECONDS
 from market.state import MarketState
 
 logger = logging.getLogger(__name__)
 
+# Primary URL from config/.env; fallback tries alternate port
 _WS_URLS = [
+    BINANCE_WS_URL,
     "wss://stream.binance.com:443/ws/btcusdt@aggTrade",
     "wss://stream.binance.com:9443/ws/btcusdt@aggTrade",
 ]
@@ -89,13 +92,26 @@ async def _try_websocket(state: MarketState, price_window: deque) -> bool:
     """
     for url in _WS_URLS:
         try:
-            async with aiohttp.ClientSession() as session:
+            connector = aiohttp.TCPConnector(enable_cleanup_closed=True)
+            async with aiohttp.ClientSession(connector=connector) as session:
                 async with session.ws_connect(
                     url,
                     heartbeat=_WS_KEEPALIVE_S,   # aiohttp sends WS ping every 3s
-                    receive_timeout=15.0,          # drop connection if silent for 15s
+                    receive_timeout=8.0,           # drop connection if silent for 8s (AWS NAT fast detection)
                     ssl=True,
                 ) as ws:
+                    # AWS NAT keepalive: tell the OS to probe the TCP connection
+                    # every 10s after 10s idle — prevents silent NAT teardown
+                    try:
+                        sock = ws._writer.transport.get_extra_info("socket")
+                        if sock is not None:
+                            sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                            if hasattr(socket, "TCP_KEEPIDLE"):   # Linux only
+                                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 10)
+                                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 5)
+                                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
+                    except Exception:
+                        pass  # non-fatal — WS-level pings are still active
                     state.btc_last_update = time.monotonic()
                     logger.info("Binance WebSocket connected (%s)", url)
                     received_any = False

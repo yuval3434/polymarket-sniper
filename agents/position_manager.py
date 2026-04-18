@@ -45,10 +45,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
+from config import TAKER_FEE_RATE
 from core.database import (
     async_log_decision,
     async_log_trade,
@@ -57,6 +59,7 @@ from core.database import (
 from core.pnl_tracker import PnLTracker, TradeRecord
 from core.risk_manager import RiskManager
 from core.tracker import TradeEntry, record_trade as _tracker_record
+from engine.probability import calculate_probability
 import engine.strategy_loader as _scfg
 from market.state import MarketState
 
@@ -75,6 +78,9 @@ HTE_TAU_THRESHOLD   = 60.0   # seconds remaining when HTE kicks in
 
 MONITOR_INTERVAL_S  = 0.5    # position check every 500ms
 MIN_HOLD_SECONDS    = 5.0    # ignore exits within 5s of entry (noise)
+
+# BTC momentum window — store up to 30 ticks (15 seconds at 500ms interval)
+_BTC_WINDOW_MAXLEN  = 30
 
 
 @dataclass
@@ -179,6 +185,10 @@ class PositionManager:
         self._position: Optional[OpenPosition] = None
         self.order_manager    = None  # wired by main.py after both are created
 
+        # BTC price history: deque of (monotonic_time, price) — populated every tick
+        # regardless of whether a position is open, so we always have 1s of history
+        self._btc_window: deque[tuple[float, float]] = deque(maxlen=_BTC_WINDOW_MAXLEN)
+
     # ------------------------------------------------------------------
     # Position lifecycle
     # ------------------------------------------------------------------
@@ -248,11 +258,22 @@ class PositionManager:
 
     async def monitor_loop(self, state: MarketState) -> None:
         """
-        Runs every 500ms. Implements the trailing stop state machine and
-        hold-to-expiry logic. Never exits the loop — runs for the session lifetime.
+        Runs every 500ms. Implements trailing stop, take-profit, emergency
+        momentum exit, and hold-to-expiry logic.
+
+        Exit priority (highest → lowest):
+          1. Expiry             — market settled, collect outcome
+          2. Emergency sell     — adverse BTC momentum (capital protection)
+          3. Take-profit        — hit profit target early
+          4. Hold-to-expiry     — P > 98% and < 15s left, wait for full $1
+          5. Trailing stop      — stop-loss / trail ratchet
         """
         while True:
             await asyncio.sleep(MONITOR_INTERVAL_S)
+
+            # Always snapshot BTC price so the momentum window stays warm
+            if state.btc_price > 0:
+                self._btc_window.append((time.monotonic(), state.btc_price))
 
             if self._position is None:
                 continue
@@ -262,13 +283,41 @@ class PositionManager:
             bid = pos.current_bid(state)
             age = pos.age_seconds()
 
-            # ── Expiry close ──────────────────────────────────────────────
+            # ── 1. Expiry close ───────────────────────────────────────────
             if tau <= 0:
                 await self._close_at_expiry(pos, state)
                 continue
 
             # ── Noise suppression: ignore exits immediately after entry ───
             if age < MIN_HOLD_SECONDS:
+                continue
+
+            # ── 2. Emergency BTC momentum check ──────────────────────────
+            # If Binance price moves adversely > 0.05% in 1s, exit NOW
+            # regardless of whether the profit target is reached.
+            if self._is_btc_emergency(pos):
+                logger.warning(
+                    "EMERGENCY_MOMENTUM EXIT: adverse BTC move detected | "
+                    "side=%s bid=%.4f tau=%.0fs",
+                    pos.token_side, bid, tau,
+                )
+                await self._close_early(pos, bid, "EMERGENCY_MOMENTUM", state)
+                continue
+
+            # ── 3. Take-profit check ──────────────────────────────────────
+            # Exit early if net profit ≥ take_profit_pct and > 30s remaining.
+            # Safety override: if P_true > 98% AND tau < 15s, hold for the
+            # full $1.00 expiry payout instead.
+            tp_exit, tp_reason = self._should_take_profit(pos, bid, tau, state)
+            if tp_exit:
+                logger.info(
+                    "TAKE_PROFIT EXIT [%s]: bid=%.4f entry=%.4f "
+                    "net_profit=%.2f%% tau=%.0fs",
+                    tp_reason, bid, pos.entry_price,
+                    ((bid * (1 - TAKER_FEE_RATE) / pos.entry_price) - 1) * 100,
+                    tau,
+                )
+                await self._close_early(pos, bid, "TAKE_PROFIT", state)
                 continue
 
             # ── Advance trailing stop (ratchet up, never down) ────────────
@@ -281,21 +330,16 @@ class PositionManager:
                     pos.trailing_stop_price, bid, pos.entry_price,
                 )
 
-            # ── Hold-to-Expiry override ───────────────────────────────────
-            # If we're deeply in the money and close to expiry, suspend the
-            # trailing stop and wait for the full $1.00 payout.
-            # Exception: if bid drops BELOW the current trailing stop even
-            # during HTE window, the trailing stop still fires (protects against
-            # sudden volatility collapsing the price in the final seconds).
+            # ── 4. Hold-to-Expiry override ────────────────────────────────
             in_hte_window = (bid > HTE_BID_THRESHOLD and tau < HTE_TAU_THRESHOLD)
             if in_hte_window and bid > pos.trailing_stop_price:
                 logger.debug(
                     "HTE: holding to expiry | bid=%.4f tau=%.0fs stop=%.4f",
                     bid, tau, pos.trailing_stop_price,
                 )
-                continue  # skip trailing stop check — hold for full payout
+                continue
 
-            # ── Trailing Stop check ───────────────────────────────────────
+            # ── 5. Trailing Stop check ────────────────────────────────────
             if bid <= pos.trailing_stop_price:
                 exit_label = {
                     0: "STOP_LOSS",
@@ -311,6 +355,105 @@ class PositionManager:
                 continue
 
     # ------------------------------------------------------------------
+    # Exit decision helpers
+    # ------------------------------------------------------------------
+
+    def _is_btc_emergency(self, pos: OpenPosition) -> bool:
+        """
+        Returns True if Binance price moved adversely against the position
+        by more than emergency_btc_move_pct in the last emergency_btc_window_s.
+
+        "Adverse" means:
+          UP  position → BTC price falling
+          DOWN position → BTC price rising
+        """
+        if len(self._btc_window) < 2:
+            return False
+
+        threshold = _scfg.emergency_btc_move_pct()   # e.g. 0.0005 (0.05%)
+        window_s  = _scfg.emergency_btc_window_s()   # e.g. 1.0s
+
+        now           = time.monotonic()
+        current_price = self._btc_window[-1][1]
+
+        # Find the oldest reading within the window
+        ref_price: float | None = None
+        for ts, px in self._btc_window:
+            if now - ts <= window_s:
+                ref_price = px
+                break
+
+        if ref_price is None or ref_price <= 0:
+            return False
+
+        pct_change = (current_price - ref_price) / ref_price
+        # Adverse direction depends on which side we hold
+        adverse_move = -pct_change if pos.token_side == "UP" else pct_change
+
+        if adverse_move >= threshold:
+            logger.warning(
+                "BTC momentum: %.4f%% adverse move against %s in %.1fs "
+                "(threshold=%.4f%%) | BTC %.2f → %.2f",
+                adverse_move * 100, pos.token_side, window_s,
+                threshold * 100, ref_price, current_price,
+            )
+            return True
+        return False
+
+    def _should_take_profit(
+        self,
+        pos: OpenPosition,
+        bid: float,
+        tau: float,
+        state: MarketState,
+    ) -> tuple[bool, str]:
+        """
+        Returns (should_exit, reason_label).
+
+        Take-profit fires when:
+          net_bid_after_fee ≥ entry × (1 + take_profit_pct)
+          AND tau > take_profit_min_tau (default 30s)
+
+        Safety exception — stay in trade when:
+          current P_true > hte_p_threshold (98%)
+          AND tau < hte_tau_threshold (15s)
+          → holds for full $1.00 expiry payout
+        """
+        tp_pct    = _scfg.take_profit_pct()        # e.g. 0.05
+        min_tau   = _scfg.take_profit_min_tau()     # e.g. 30.0s
+
+        if tp_pct <= 0:
+            return False, ""
+
+        # Account for the taker fee we'll pay on the sell
+        net_bid       = bid * (1.0 - TAKER_FEE_RATE)
+        net_profit_pct = (net_bid / pos.entry_price) - 1.0
+
+        if net_profit_pct < tp_pct:
+            return False, ""
+
+        if tau <= min_tau:
+            return False, ""
+
+        # Safety exception: very high conviction + near expiry → wait for $1
+        try:
+            P_up, P_down, _ = calculate_probability(state)
+            p_current = P_up if pos.token_side == "UP" else P_down
+            hte_p   = _scfg.hte_p_threshold()    # 0.98
+            hte_tau = _scfg.hte_tau_threshold()   # 15.0s
+            if p_current >= hte_p and tau <= hte_tau:
+                logger.info(
+                    "TP suppressed by HTE override: P_true=%.4f >= %.2f "
+                    "and tau=%.0fs <= %.0fs — holding for full payout",
+                    p_current, hte_p, tau, hte_tau,
+                )
+                return False, ""
+        except Exception as exc:
+            logger.debug("TP: probability calc failed: %s", exc)
+
+        return True, f"net_profit={net_profit_pct:.2%}"
+
+    # ------------------------------------------------------------------
     # Close helpers
     # ------------------------------------------------------------------
 
@@ -321,24 +464,46 @@ class PositionManager:
         exit_type: str,
         state: MarketState,
     ) -> None:
-        if not pos.is_dry_run and self.order_manager is not None:
-            logger.info(
-                "Placing live SELL [%s]: token=%s shares=%.4f bid=%.4f",
-                exit_type, pos.token_id, pos.size_shares, exit_bid,
-            )
-            sell_result = await self.order_manager.sell(
-                token_id=pos.token_id,
-                size_shares=pos.size_shares,
-                bid_price=exit_bid,
-            )
-            if sell_result is None:
-                logger.error("SELL failed — keeping position open")
-                return
+        actual_exit_price = exit_bid
 
-        pnl_usd = (exit_bid - pos.entry_price) * pos.size_shares
-        pnl_pct = ((exit_bid / pos.entry_price) - 1.0) * 100
+        if not pos.is_dry_run and self.order_manager is not None:
+            if exit_type == "EMERGENCY_MOMENTUM":
+                # Fast path: minimal wait, starts 3¢ below bid immediately
+                logger.warning(
+                    "EMERGENCY sell path: token=%s shares=%.4f bid=%.4f",
+                    pos.token_id, pos.size_shares, exit_bid,
+                )
+                success, actual_exit_price = await self.order_manager.emergency_sell(
+                    token_id=pos.token_id,
+                    size_shares=pos.size_shares,
+                    bid_price=exit_bid,
+                )
+            else:
+                # Standard path: smart retry with full backoff
+                logger.info(
+                    "Initiating smart-retry SELL [%s]: token=%s shares=%.4f bid=%.4f",
+                    exit_type, pos.token_id, pos.size_shares, exit_bid,
+                )
+                success, actual_exit_price = await self.order_manager.sell_with_retry(
+                    token_id=pos.token_id,
+                    size_shares=pos.size_shares,
+                    bid_price=exit_bid,
+                )
+
+            if not success:
+                halt_msg = (
+                    f"SELL_EXHAUSTED [{exit_type}]: token={pos.token_id} "
+                    f"size={pos.size_shares:.4f} bid={exit_bid:.4f} — "
+                    "Manual intervention required!"
+                )
+                logger.critical("CRITICAL_ERROR: %s", halt_msg)
+                self.risk_manager.force_halt(halt_msg)
+                return  # keep _position open for next monitor tick
+
+        pnl_usd = (actual_exit_price - pos.entry_price) * pos.size_shares
+        pnl_pct = ((actual_exit_price / pos.entry_price) - 1.0) * 100
         win     = pnl_usd > 0
-        await self._finalise(pos, exit_bid, exit_type, pnl_usd, pnl_pct, win)
+        await self._finalise(pos, actual_exit_price, exit_type, pnl_usd, pnl_pct, win)
 
     async def _close_at_expiry(self, pos: OpenPosition, state: MarketState) -> None:
         bid = pos.current_bid(state)
@@ -347,6 +512,17 @@ class PositionManager:
         pnl_usd = (exit_price - pos.entry_price) * pos.size_shares
         pnl_pct = ((exit_price / pos.entry_price) - 1.0) * 100
         await self._finalise(pos, exit_price, "EXPIRY", pnl_usd, pnl_pct, win)
+
+        # Auto-claim winning shares — fire-and-forget, does not block the loop
+        if win and not pos.is_dry_run and self.order_manager is not None:
+            asyncio.create_task(
+                self.order_manager.try_redeem(
+                    condition_id=pos.condition_id,
+                    token_id=pos.token_id,
+                    shares=pos.size_shares,
+                    entry_price=pos.entry_price,
+                )
+            )
 
     async def close_position_with_resolution(
         self,

@@ -79,6 +79,12 @@ class RiskManager:
         self.halt_reason = ""
         logger.warning("Circuit breaker reset manually")
 
+    def force_halt(self, reason: str) -> None:
+        """Immediate halt regardless of drawdown — used for critical execution failures."""
+        self.halted = True
+        self.halt_reason = reason
+        logger.critical("FORCED HALT: %s", reason)
+
     # ------------------------------------------------------------------
     # Kelly-fractional bet sizing
     # ------------------------------------------------------------------
