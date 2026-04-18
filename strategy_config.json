@@ -29,14 +29,5 @@
     "momentum_min_pct": 0.05,
     "use_spread_filter": false,
     "max_poly_spread": 0.10
-  },
-  "exit": {
-    "take_profit_pct": 0.05,
-    "take_profit_min_tau": 30.0,
-    "hte_p_threshold": 0.98,
-    "hte_tau_threshold": 15.0,
-    "emergency_btc_move_pct": 0.0005,
-    "emergency_btc_window_s": 1.0,
-    "max_gas_claim_pct": 0.02
   }
 }
