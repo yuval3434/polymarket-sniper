@@ -223,7 +223,7 @@ class OrderManager:
                 "SELL pre-check: on-chain balance=%.6f (theoretical=%.6f)",
                 balance, size_shares,
             )
-            if balance < 0.001:
+            if balance < 0.01:
                 logger.info("Position already closed on-chain — no sell needed")
                 return True, bid_price
             size_shares = balance   # always sell what we actually hold
@@ -289,9 +289,9 @@ class OrderManager:
             # ── Verify: query on-chain balance to confirm fill ─────────────
             try:
                 remaining = await _get_balance()
-                if remaining < 0.001:
+                if remaining < 0.01:
                     logger.info(
-                        "SELL CONFIRMED on attempt %d: balance=%.6f | exit_price=%.4f",
+                        "SELL CONFIRMED on attempt %d: balance=%.6f (dust) | exit_price=%.4f",
                         attempt, remaining, current_price,
                     )
                     return True, current_price

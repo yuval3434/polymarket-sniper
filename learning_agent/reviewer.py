@@ -251,15 +251,66 @@ def _detect_late_entry(losses: list[Trade]) -> Optional[LossPattern]:
 # Public API
 # ---------------------------------------------------------------------------
 
+def _load_remote_trades() -> list[Trade]:
+    """
+    Pull the latest trades from all configured peer instances, then load
+    the merged cache from the local remote_trades table.
+    """
+    try:
+        from core.remote_sync import fetch_remote_trades_cached, sync_remote_trades
+        sync_remote_trades()
+        rows = fetch_remote_trades_cached()
+    except Exception as exc:
+        logger.warning("Reviewer [remote]: sync failed — %s", exc)
+        return []
+
+    trades: list[Trade] = []
+    for row in rows:
+        try:
+            trades.append(Trade(
+                timestamp=str(row.get("timestamp", "")),
+                market_id=str(row.get("market_id", "")),
+                btc_price=0.0,
+                opening_price=0.0,
+                token_side=str(row.get("token_side", "")),
+                ask_price=float(row.get("entry_price") or 0.0),
+                p_true=float(row.get("p_true") or 0.5),
+                z_score=float(row.get("z_score") or 0.0),
+                expected_value=0.0,
+                would_execute=True,
+                fee_adjusted_profit=float(row.get("pnl_usd") or 0.0),
+                actual_outcome="WIN" if row.get("win") else "LOSS",
+                actual_pnl=float(row.get("pnl_usd") or 0.0),
+            ))
+        except (TypeError, ValueError) as exc:
+            logger.debug("Reviewer [remote]: skipped row: %s", exc)
+
+    if trades:
+        logger.info("Reviewer [remote]: merged %d trades from peer instances", len(trades))
+    return trades
+
+
 def analyse(csv_path: str = PAPER_TRADES_CSV) -> AnalysisReport:
     """
     Load trades and return a full AnalysisReport.
 
-    Tries trading_bot.db first (always has resolved outcomes).
-    Falls back to paper_trades.csv if the DB is empty.
+    Sources (merged in order):
+      1. trading_bot.db      — local resolved trades (always authoritative)
+      2. remote_trades table — trades synced from peer bot instances (REMOTE_BOT_PEERS)
+      3. paper_trades.csv    — fallback when DB is empty
     """
-    # ── Primary: DB ──────────────────────────────────────────────────────────
+    # ── Primary: local DB ────────────────────────────────────────────────────
     all_trades = _load_trades_from_db()
+
+    # ── Remote peers: cross-machine trades ───────────────────────────────────
+    remote = _load_remote_trades()
+    if remote:
+        # Avoid double-counting: deduplicate by (timestamp, market_id, token_side)
+        seen = {(t.timestamp, t.market_id, t.token_side) for t in all_trades}
+        new_remote = [t for t in remote if (t.timestamp, t.market_id, t.token_side) not in seen]
+        all_trades.extend(new_remote)
+        if new_remote:
+            logger.info("Reviewer: added %d unique remote trades (total=%d)", len(new_remote), len(all_trades))
 
     # ── Fallback: CSV ────────────────────────────────────────────────────────
     if not all_trades:

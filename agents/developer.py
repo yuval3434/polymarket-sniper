@@ -195,7 +195,10 @@ class DeveloperAgent:
         from learning_agent.reviewer import analyse as reviewer_analyse
         live_report = await asyncio.to_thread(reviewer_analyse)
 
-        status, reason = evaluate(self._active_validation, live_report)
+        status, reason = evaluate(
+            self._active_validation, live_report,
+            live_trade_count=live_report.executed_trades,
+        )
         logger.debug("Developer: validation status — %s", summarise(self._active_validation))
 
         if status == ValidationStatus.APPROVED:

@@ -91,3 +91,10 @@ VOL_WINDOW_SECONDS: int = 30
 
 # --- Paper trade output ---
 PAPER_TRADE_CSV: str = "paper_trades.csv"
+
+# --- Cross-machine trade sync ---
+# Comma-separated list of peer bot URLs, e.g. "http://1.2.3.4:8765,http://5.6.7.8:8765"
+REMOTE_BOT_PEERS: list[str] = [
+    p.strip() for p in os.environ.get("REMOTE_BOT_PEERS", "").split(",") if p.strip()
+]
+TRADE_SERVER_PORT: int = int(os.environ.get("TRADE_SERVER_PORT", "8765"))
