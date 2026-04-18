@@ -11,7 +11,6 @@ from config import (
     POLY_SECRET,
     SIGNATURE_TYPE,
 )
-from config import TAKER_FEE_RATE
 from market.state import MarketState
 
 logger = logging.getLogger(__name__)
@@ -135,7 +134,7 @@ class OrderManager:
 
         loop = asyncio.get_event_loop()
 
-        fee_bps = round(TAKER_FEE_RATE * 10_000)   # e.g. 0.018 → 180 bps
+        fee_bps = 1000   # Polymarket protocol requirement — must be exactly 1000 bps
 
         if use_maker:
             maker_price = round(ask_price - 0.001, 4)
