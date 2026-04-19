@@ -1,11 +1,11 @@
 {
   "_meta": {
     "version": 3,
-    "experiment_id": "la_20260419_170202_e5af4a",
-    "staged_at": "2026-04-19T17:02:02.911861+00:00",
-    "backtest_score": 0.414849,
-    "backtest_win_rate": 0.6548,
-    "backtest_trades": 197,
+    "experiment_id": "la_20260419_172350_49d260",
+    "staged_at": "2026-04-19T17:23:50.510511+00:00",
+    "backtest_score": 0.427424,
+    "backtest_win_rate": 0.6566,
+    "backtest_trades": 198,
     "status": "staged",
     "promoted_at": null
   },
