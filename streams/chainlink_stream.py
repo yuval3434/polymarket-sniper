@@ -52,7 +52,7 @@ _RPC_URLS = [
     "https://1rpc.io/matic",
 ]
 
-POLL_INTERVAL   = 5.0    # seconds between Chainlink reads
+POLL_INTERVAL   = 2.0    # seconds between Chainlink reads (must be < kill switch threshold)
 _BACKOFF_INITIAL = 2.0
 _BACKOFF_MAX     = 30.0
 _STABLE_TICKS    = 3     # consecutive good polls before re-enabling trading
