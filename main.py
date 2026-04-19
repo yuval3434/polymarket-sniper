@@ -98,7 +98,7 @@ async def sniper_loop(
     import time as _time
     _last_status = 0.0
 
-    _last_price_reject_key = ("", 0.0)  # (market_id, ask_price) — suppress repeat prints
+    _last_price_reject_key = ("", "")  # (market_id, token_side) — suppress repeat prints per market
     _cb_logged = False   # suppress circuit-breaker spam — log once when it trips
 
     while True:
@@ -177,7 +177,7 @@ async def sniper_loop(
 
         max_entry = _scfg.max_ask_price()
         if ask_price > max_entry:
-            reject_key = (state.market_id, round(ask_price, 4))
+            reject_key = (state.market_id, token_side)
             if reject_key != _last_price_reject_key:
                 print(
                     f"\n  Trade Rejected: Price ${ask_price:.4f} exceeds"
