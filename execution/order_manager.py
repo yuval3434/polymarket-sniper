@@ -446,13 +446,26 @@ class OrderManager:
             signed_order = await loop.run_in_executor(
                 None, lambda: self._client.create_market_order(market_args, options)
             )
-            logger.info("Signed market order created: %s", signed_order)
+            # Extract actual fill price from signed order (set from live order book)
+            actual_price = None
+            try:
+                actual_price = float(
+                    getattr(signed_order, "price", None)
+                    or (signed_order.get("price") if isinstance(signed_order, dict) else None)
+                    or 0
+                ) or None
+            except Exception:
+                pass
+            logger.info("Signed market order created: %s (actual_price=%s)", signed_order, actual_price)
             result = await loop.run_in_executor(
                 None, lambda: self._client.post_order(signed_order, OrderType.FOK)
             )
             _check_response(result, "market")
             order_id = result.get("orderID") or result.get("id", "") if result else ""
             await self.verify_trade(order_id)
+            # Inject actual price into result so caller can correct position entry
+            if result and actual_price:
+                result["actual_fill_price"] = actual_price
             return result
         except Exception as exc:
             logger.error("Market order failed: %s", exc)

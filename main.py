@@ -306,11 +306,11 @@ async def _snipe_and_correct_entry(
     )
     if not result:
         return
-    # Extract actual fill price from API response
+    # Extract actual fill price — prefer actual_fill_price injected by order_manager
     actual_price = (
-        float(result.get("price") or 0)
+        float(result.get("actual_fill_price") or 0)
+        or float(result.get("price") or 0)
         or float(result.get("averagePrice") or 0)
-        or float(result.get("avg_price") or 0)
     )
     if actual_price > 0 and abs(actual_price - ask_price) > 0.001:
         pos = orchestrator.position_manager._position
