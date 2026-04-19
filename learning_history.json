@@ -2442,5 +2442,45 @@
         "max_poly_spread": 0.1
       }
     }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260419_175233_ad1d15",
+    "ts": "2026-04-19T17:52:33.401268+00:00",
+    "backtest_win_rate": 0.6598984771573604,
+    "backtest_score": 0.4451423390911586,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.0,
+        "min_vol_floor": 0.01
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.5
+      },
+      "fee_filter": {
+        "safety_buffer": 0.03,
+        "max_ask_price": 0.75,
+        "maker_spread_threshold": 0.002
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.05,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
   }
 ]
