@@ -1,16 +1,16 @@
 {
   "_meta": {
     "version": 3,
-    "experiment_id": "la_20260419_175233_ad1d15",
-    "staged_at": "2026-04-19T17:52:33.382016+00:00",
-    "backtest_score": 0.445142,
-    "backtest_win_rate": 0.6599,
-    "backtest_trades": 197,
+    "experiment_id": "exp_20260419_181138_b17244",
+    "staged_at": "2026-04-19T18:11:38.919869+00:00",
+    "backtest_score": 0.416985,
+    "backtest_win_rate": 0.6567,
+    "backtest_trades": 201,
     "status": "staged",
     "promoted_at": null
   },
   "probability": {
-    "oracle_lag_seconds": 2.0,
+    "oracle_lag_seconds": 2.5,
     "min_vol_floor": 0.01
   },
   "sniper": {
@@ -19,7 +19,8 @@
     "window_stop_seconds": 2,
     "early_cutoff_seconds": 180,
     "early_z_score": 0.3,
-    "min_z_score": 0.5
+    "min_z_score": 0.5,
+    "window_start_seconds": 10
   },
   "fee_filter": {
     "safety_buffer": 0.03,
