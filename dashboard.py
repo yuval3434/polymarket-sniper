@@ -225,8 +225,8 @@ def _color_pnl(val: str) -> str:
 
 styled = (
     display.style
-    .applymap(_color_result, subset=["Result"])
-    .applymap(_color_pnl,    subset=["P&L (USDC)", "P&L %"])
+    .map(_color_result, subset=["Result"])
+    .map(_color_pnl,    subset=["P&L (USDC)", "P&L %"])
 )
 
 st.dataframe(styled, use_container_width=True, hide_index=True)

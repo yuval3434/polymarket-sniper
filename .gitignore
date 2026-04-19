@@ -4,15 +4,10 @@
 *.key
 *private_key*
 
-# ── Runtime data (never commit live trading state) ────────────────
+# ── SQLite binary — never commit (use trades_history.csv instead) ──
 trading_bot.db
 trading_bot.db-shm
 trading_bot.db-wal
-paper_trades.csv
-candidate_paper_trades.csv
-candidate_config.json
-learning_history.json
-trades_history.csv
 
 # ── Python cache ──────────────────────────────────────────────────
 __pycache__/
@@ -34,3 +29,4 @@ Thumbs.db
 
 # ── Logs ─────────────────────────────────────────────────────────
 *.log
+ping_log.csv

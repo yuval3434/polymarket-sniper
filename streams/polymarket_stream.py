@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import socket
 import time
 
 import aiohttp
@@ -38,27 +39,32 @@ async def _rest_book_loop(state: MarketState) -> None:
         last_logged_tokens: tuple[str, str] = ("", "")
         while True:
             if state.kill_switch_active:
-                return
+                await asyncio.sleep(0.5)
+                continue
             up_id   = state.up_token_id
             down_id = state.down_token_id
             if up_id and down_id:
                 try:
                     up_bid, up_ask     = await _fetch_best(session, up_id)
                     down_bid, down_ask = await _fetch_best(session, down_id)
-                    if up_ask < 1.0 or down_ask < 1.0:
-                        state.up_best_bid   = up_bid
-                        state.up_best_ask   = up_ask
-                        state.down_best_bid = down_bid
-                        state.down_best_ask = down_ask
-                        state.poly_last_update = time.monotonic()
-                        if (up_id, down_id) != last_logged_tokens:
-                            logger.info(
-                                "Orderbook REST: UP bid=%.4f ask=%.4f | DOWN bid=%.4f ask=%.4f",
-                                up_bid, up_ask, down_bid, down_ask,
-                            )
-                            last_logged_tokens = (up_id, down_id)
+                    state.up_best_bid   = up_bid
+                    state.up_best_ask   = up_ask
+                    state.down_best_bid = down_bid
+                    state.down_best_ask = down_ask
+                    state.poly_last_update = time.monotonic()
+                    if (up_id, down_id) != last_logged_tokens:
+                        logger.info(
+                            "Orderbook REST: UP bid=%.4f ask=%.4f | DOWN bid=%.4f ask=%.4f",
+                            up_bid, up_ask, down_bid, down_ask,
+                        )
+                        last_logged_tokens = (up_id, down_id)
+                    if up_ask >= 1.0 and down_ask >= 1.0:
+                        logger.warning(
+                            "Orderbook REST: both sides at default 1.0 — "
+                            "order book may be empty (up_id=%s)", up_id[:12]
+                        )
                 except Exception as exc:
-                    logger.debug("REST book poll error: %s", exc)
+                    logger.warning("REST book poll error: %s", exc)
             await asyncio.sleep(_REST_POLL_INTERVAL)
 
 
@@ -85,12 +91,23 @@ async def _ws_loop(state: MarketState) -> None:
 
     while True:
         try:
-            async with aiohttp.ClientSession() as session:
+            connector = aiohttp.TCPConnector(enable_cleanup_closed=True)
+            async with aiohttp.ClientSession(connector=connector) as session:
                 async with session.ws_connect(
                     POLY_WS_URL,
                     heartbeat=HEARTBEAT_INTERVAL,
                     receive_timeout=HEARTBEAT_INTERVAL + 5,
                 ) as ws:
+                    try:
+                        sock = ws._writer.transport.get_extra_info("socket")
+                        if sock is not None:
+                            sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+                            if hasattr(socket, "TCP_KEEPIDLE"):
+                                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 10)
+                                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 5)
+                                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 3)
+                    except Exception:
+                        pass
                     state.poly_last_update = time.monotonic()
                     logger.info("Polymarket CLOB WebSocket connected")
                     backoff = RECONNECT_BACKOFF_INITIAL
@@ -139,7 +156,7 @@ async def _subscribe(
     ws: aiohttp.ClientWebSocketResponse, up_token: str, down_token: str
 ) -> None:
     payload = json.dumps(
-        {"type": "subscribe", "asset_ids": [up_token, down_token]}
+        {"type": "subscribe", "assets_ids": [up_token, down_token]}
     )
     await ws.send_str(payload)
     logger.info("Subscribed to tokens: UP=%s DOWN=%s", up_token, down_token)

@@ -1,0 +1,2366 @@
+[
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_174124_29ea66",
+    "ts": "2026-04-17T17:41:24.421835+00:00",
+    "backtest_win_rate": 0.6831275720164609,
+    "backtest_score": 0.49379667468190824,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 1.8584066216589679,
+        "min_vol_floor": 0.005075027415653921
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.4174113188059493
+      },
+      "fee_filter": {
+        "safety_buffer": 0.038349513576965484,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0014030379473418276
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.0393222211636937,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "exp_20260417_180114_24003f",
+    "ts": "2026-04-17T18:01:14.035632+00:00",
+    "backtest_win_rate": 0.6530612244897959,
+    "backtest_score": 0.3808435030585521,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.5,
+        "min_vol_floor": 0.01
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.65,
+        "window_start_seconds": 10
+      },
+      "fee_filter": {
+        "safety_buffer": 0.03,
+        "max_ask_price": 0.75,
+        "maker_spread_threshold": 0.002
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.05,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_181148_256984",
+    "ts": "2026-04-17T18:11:48.826081+00:00",
+    "backtest_win_rate": 0.6807692307692308,
+    "backtest_score": 0.5099003420386882,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.7834835248238985,
+        "min_vol_floor": 0.01516336365929947
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.2733174976594295
+      },
+      "fee_filter": {
+        "safety_buffer": 0.03031431694699281,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0019137611608279579
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.04084969868948682,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "exp_20260417_182826_2c7586",
+    "ts": "2026-04-17T18:28:26.034157+00:00",
+    "backtest_win_rate": 0.6615384615384615,
+    "backtest_score": 0.4274848678836798,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.5,
+        "min_vol_floor": 0.01
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.65,
+        "window_start_seconds": 10
+      },
+      "fee_filter": {
+        "safety_buffer": 0.03,
+        "max_ask_price": 0.75,
+        "maker_spread_threshold": 0.002
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.05,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_182911_772eca",
+    "ts": "2026-04-17T18:29:11.445066+00:00",
+    "backtest_win_rate": 0.6941176470588235,
+    "backtest_score": 0.5686470197864526,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 3.1228131238265395,
+        "min_vol_floor": 0.010776211730667954
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.32114592847151435
+      },
+      "fee_filter": {
+        "safety_buffer": 0.031159778278729056,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0033167294128407217
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.0581797159299926,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_184847_5aff8a",
+    "ts": "2026-04-17T18:48:47.930577+00:00",
+    "backtest_win_rate": 0.6869918699186992,
+    "backtest_score": 0.5084110417867568,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.8557363855234423,
+        "min_vol_floor": 0.006692978142364761
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.4503167860573178
+      },
+      "fee_filter": {
+        "safety_buffer": 0.027589948476917692,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0012803664432230503
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.038194451763146814,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_191105_beb309",
+    "ts": "2026-04-17T19:11:05.033645+00:00",
+    "backtest_win_rate": 0.691304347826087,
+    "backtest_score": 0.4971267516249589,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.823697394374837,
+        "min_vol_floor": 0.008616545379945498
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.6575536641607787
+      },
+      "fee_filter": {
+        "safety_buffer": 0.03630501745091337,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.002172262076674082
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.04744381244896666,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_192255_f4b0f7",
+    "ts": "2026-04-17T19:22:55.449176+00:00",
+    "backtest_win_rate": 0.6892430278884463,
+    "backtest_score": 0.5455420663154644,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.2830221138953455,
+        "min_vol_floor": 0.007801568079502732
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.3066123189132005
+      },
+      "fee_filter": {
+        "safety_buffer": 0.02573910132756474,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0021634957027282034
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.05138996790996127,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_193407_838bf8",
+    "ts": "2026-04-17T19:34:07.555528+00:00",
+    "backtest_win_rate": 0.6944444444444444,
+    "backtest_score": 0.5719695265513833,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 3.0267667253902117,
+        "min_vol_floor": 0.013301927229583236
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.34305597097485097
+      },
+      "fee_filter": {
+        "safety_buffer": 0.03476903634261303,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0011915310157306507
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.04260018171152366,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_195555_0bf33d",
+    "ts": "2026-04-17T19:55:55.280616+00:00",
+    "backtest_win_rate": 0.6932270916334662,
+    "backtest_score": 0.5703449469828326,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.4532599423187555,
+        "min_vol_floor": 0.013610935269450305
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.3382688295210219
+      },
+      "fee_filter": {
+        "safety_buffer": 0.020261934608059987,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.001537498864317928
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.05660681490106151,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_200715_6c4549",
+    "ts": "2026-04-17T20:07:15.380753+00:00",
+    "backtest_win_rate": 0.6895161290322581,
+    "backtest_score": 0.5483257127949499,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.3462687966979834,
+        "min_vol_floor": 0.009856512859177933
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.3942442179284429
+      },
+      "fee_filter": {
+        "safety_buffer": 0.03598663814379302,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.003102313977838931
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.044732197976263995,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_201036_633581",
+    "ts": "2026-04-17T20:10:37.129346+00:00",
+    "backtest_win_rate": 0.6865079365079365,
+    "backtest_score": 0.537209546707325,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.853696873461567,
+        "min_vol_floor": 0.013134881099315317
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.3660721669999015
+      },
+      "fee_filter": {
+        "safety_buffer": 0.0298572761998915,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0010260347046177499
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.051477322115813316,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_201127_69da7c",
+    "ts": "2026-04-17T20:11:27.877454+00:00",
+    "backtest_win_rate": 0.6877470355731226,
+    "backtest_score": 0.5491328228110149,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.7384230348185845,
+        "min_vol_floor": 0.016119331319362065
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.3299830908567517
+      },
+      "fee_filter": {
+        "safety_buffer": 0.032164226367788186,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.001
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.05496090889072103,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_201453_2dfe32",
+    "ts": "2026-04-17T20:14:53.569100+00:00",
+    "backtest_win_rate": 0.6818181818181818,
+    "backtest_score": 0.49522010266602057,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 1.149919357952735,
+        "min_vol_floor": 0.013802452675040024
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.40697331506001866
+      },
+      "fee_filter": {
+        "safety_buffer": 0.029889203533153892,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0019050694738085283
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.05593729594108971,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_202331_b42296",
+    "ts": "2026-04-17T20:23:31.413951+00:00",
+    "backtest_win_rate": 0.6768060836501901,
+    "backtest_score": 0.5035473927342169,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 3.026428868283441,
+        "min_vol_floor": 0.0144489442672428
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.2618246739005732
+      },
+      "fee_filter": {
+        "safety_buffer": 0.03292780558130112,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.003185167053864633
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.043288533354046255,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_202637_caae30",
+    "ts": "2026-04-17T20:26:37.904547+00:00",
+    "backtest_win_rate": 0.6895161290322581,
+    "backtest_score": 0.5365042518799572,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 3.0683306305238864,
+        "min_vol_floor": 0.01584278519971686
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.4837479591204213
+      },
+      "fee_filter": {
+        "safety_buffer": 0.03520542649505145,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0013023309355308403
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.05838321509789439,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_202823_01ace0",
+    "ts": "2026-04-17T20:28:23.688529+00:00",
+    "backtest_win_rate": 0.6889763779527559,
+    "backtest_score": 0.5486500021947872,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.674831559984052,
+        "min_vol_floor": 0.012843722856386654
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.3178778039469512
+      },
+      "fee_filter": {
+        "safety_buffer": 0.030253403436585016,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0019073374234676846
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.0373448011019746,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_203831_c735c4",
+    "ts": "2026-04-17T20:38:31.994862+00:00",
+    "backtest_win_rate": 0.6850393700787402,
+    "backtest_score": 0.5285447062614304,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.4376165634354106,
+        "min_vol_floor": 0.008603875252866534
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.31652916566594713
+      },
+      "fee_filter": {
+        "safety_buffer": 0.03988810806447479,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0018187694022846399
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.06189213845583655,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_205849_e408cf",
+    "ts": "2026-04-17T20:58:49.793122+00:00",
+    "backtest_win_rate": 0.6942148760330579,
+    "backtest_score": 0.5538443311426348,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.056597935727397,
+        "min_vol_floor": 0.007751681349214665
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.4714741341971255
+      },
+      "fee_filter": {
+        "safety_buffer": 0.03518998499455396,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.002781192132130016
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.053927413855701094,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_210002_e73e2a",
+    "ts": "2026-04-17T21:00:02.628032+00:00",
+    "backtest_win_rate": 0.689795918367347,
+    "backtest_score": 0.5417512014006725,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 1.6707099789247892,
+        "min_vol_floor": 0.009046883091137757
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.3690605974914864
+      },
+      "fee_filter": {
+        "safety_buffer": 0.02626563885365091,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.00220559612385394
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.03903705681478263,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_212715_f29734",
+    "ts": "2026-04-17T21:27:15.373125+00:00",
+    "backtest_win_rate": 0.689795918367347,
+    "backtest_score": 0.5402840972274237,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 1.8465945575042433,
+        "min_vol_floor": 0.0052939522248945095
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.4153355403247373
+      },
+      "fee_filter": {
+        "safety_buffer": 0.034155341790039935,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.001
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.05305356071288817,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_213517_a45aa6",
+    "ts": "2026-04-17T21:35:17.991817+00:00",
+    "backtest_win_rate": 0.6967213114754098,
+    "backtest_score": 0.5713312986146291,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.255565490931815,
+        "min_vol_floor": 0.015564282694516245
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.4819993042908155
+      },
+      "fee_filter": {
+        "safety_buffer": 0.03559726882736034,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.001
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.054158858534120655,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_215516_28819b",
+    "ts": "2026-04-17T21:55:16.467284+00:00",
+    "backtest_win_rate": 0.6904761904761905,
+    "backtest_score": 0.5495041736822404,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.4055031644024156,
+        "min_vol_floor": 0.012121591722638447
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.3899391364438905
+      },
+      "fee_filter": {
+        "safety_buffer": 0.023102178197736613,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0018648320769840316
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.05501784041653521,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_215622_ba3918",
+    "ts": "2026-04-17T21:56:22.984510+00:00",
+    "backtest_win_rate": 0.6902654867256637,
+    "backtest_score": 0.49537589321844755,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 1.7973410771726113,
+        "min_vol_floor": 0.005734795175537788
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.6594117545363094
+      },
+      "fee_filter": {
+        "safety_buffer": 0.03203734691259076,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0029007527613622254
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.06252997514417423,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_220116_61b40a",
+    "ts": "2026-04-17T22:01:16.064715+00:00",
+    "backtest_win_rate": 0.6944444444444444,
+    "backtest_score": 0.5733266579892371,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.8853441625407656,
+        "min_vol_floor": 0.005599270413132725
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.4147163650381319
+      },
+      "fee_filter": {
+        "safety_buffer": 0.039225002138171025,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.001490370194021563
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.06311121360349076,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_220149_bf0d68",
+    "ts": "2026-04-17T22:01:49.611366+00:00",
+    "backtest_win_rate": 0.6941176470588235,
+    "backtest_score": 0.578330348858292,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.8736699986404455,
+        "min_vol_floor": 0.005165784871951435
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.36534372166727036
+      },
+      "fee_filter": {
+        "safety_buffer": 0.027467295790246635,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.002138413142306123
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.0629222580203319,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_221147_fec71a",
+    "ts": "2026-04-17T22:11:47.987062+00:00",
+    "backtest_win_rate": 0.6946902654867256,
+    "backtest_score": 0.5275204003942674,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.1561848368699774,
+        "min_vol_floor": 0.005
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.6519879379916778
+      },
+      "fee_filter": {
+        "safety_buffer": 0.026748370419820335,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0019898319524577464
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.05158440253809903,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_222214_2cf128",
+    "ts": "2026-04-17T22:22:14.473753+00:00",
+    "backtest_win_rate": 0.6942148760330579,
+    "backtest_score": 0.5536399966054302,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.8605151641180973,
+        "min_vol_floor": 0.005
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.5315057190228234
+      },
+      "fee_filter": {
+        "safety_buffer": 0.023583799338478897,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0025109817726160985
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.043532690959327915,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_222317_d35de4",
+    "ts": "2026-04-17T22:23:17.696471+00:00",
+    "backtest_win_rate": 0.696,
+    "backtest_score": 0.5793984526417356,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.7421344149720532,
+        "min_vol_floor": 0.005
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.42301480707665834
+      },
+      "fee_filter": {
+        "safety_buffer": 0.02956278604278972,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0012293169273842656
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.038690546724534564,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_222414_fe16c5",
+    "ts": "2026-04-17T22:24:14.623306+00:00",
+    "backtest_win_rate": 0.6932773109243697,
+    "backtest_score": 0.53420053985908,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 3.086471603107905,
+        "min_vol_floor": 0.015212994921561014
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.5945327628754837
+      },
+      "fee_filter": {
+        "safety_buffer": 0.02791024640529025,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.001541477832004583
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.045075849360273396,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_222813_f52662",
+    "ts": "2026-04-17T22:28:13.925214+00:00",
+    "backtest_win_rate": 0.6956521739130435,
+    "backtest_score": 0.5832829308724133,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.5790364746592385,
+        "min_vol_floor": 0.01006491675060172
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.39841587496021724
+      },
+      "fee_filter": {
+        "safety_buffer": 0.03726279580658144,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.001
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.06125998632571028,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "exp_20260417_223313_965f8b",
+    "ts": "2026-04-17T22:33:13.355458+00:00",
+    "backtest_win_rate": 0.6632653061224489,
+    "backtest_score": 0.455277850130841,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.5,
+        "min_vol_floor": 0.01
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.65,
+        "window_start_seconds": 10
+      },
+      "fee_filter": {
+        "safety_buffer": 0.03,
+        "max_ask_price": 0.75,
+        "maker_spread_threshold": 0.002
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.05,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_224208_f7965e",
+    "ts": "2026-04-17T22:42:08.245692+00:00",
+    "backtest_win_rate": 0.6903765690376569,
+    "backtest_score": 0.531119290281231,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.829561342824782,
+        "min_vol_floor": 0.015921781752507767
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.560375745035738
+      },
+      "fee_filter": {
+        "safety_buffer": 0.03442950394094602,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0010223338487888177
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.04434601731876993,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_224230_62613a",
+    "ts": "2026-04-17T22:42:30.666034+00:00",
+    "backtest_win_rate": 0.6903765690376569,
+    "backtest_score": 0.5411968623470531,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 1.606696247682643,
+        "min_vol_floor": 0.005625491091428908
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.4970055035430958
+      },
+      "fee_filter": {
+        "safety_buffer": 0.027404228339361673,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0029708173590106473
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.05914772274813665,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_230317_65cbbb",
+    "ts": "2026-04-17T23:03:17.375068+00:00",
+    "backtest_win_rate": 0.6963562753036437,
+    "backtest_score": 0.5838247057604424,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.929536409547561,
+        "min_vol_floor": 0.009272743801856005
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.4648563946770756
+      },
+      "fee_filter": {
+        "safety_buffer": 0.040111193088337625,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0021841868527932916
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.04466455709751283,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_230444_792bf7",
+    "ts": "2026-04-17T23:04:44.838225+00:00",
+    "backtest_win_rate": 0.6967213114754098,
+    "backtest_score": 0.5770920613671543,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.2561666833253877,
+        "min_vol_floor": 0.00781832285908893
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.4670293727503369
+      },
+      "fee_filter": {
+        "safety_buffer": 0.031705140111127565,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.001997597096772158
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.04853748412483856,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_230621_a19d3f",
+    "ts": "2026-04-17T23:06:21.804178+00:00",
+    "backtest_win_rate": 0.689795918367347,
+    "backtest_score": 0.5533549270191491,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.030214270019547,
+        "min_vol_floor": 0.015386599420801917
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.374440914702956
+      },
+      "fee_filter": {
+        "safety_buffer": 0.029247450179365076,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.001
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.03948134260558992,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_231201_b5a561",
+    "ts": "2026-04-17T23:12:01.515147+00:00",
+    "backtest_win_rate": 0.6877470355731226,
+    "backtest_score": 0.5467459487580861,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.2972997132361637,
+        "min_vol_floor": 0.005
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.3293796601901424
+      },
+      "fee_filter": {
+        "safety_buffer": 0.02182824223940595,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0025581158292291677
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.05610550421665804,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_231229_39610c",
+    "ts": "2026-04-17T23:12:29.435984+00:00",
+    "backtest_win_rate": 0.6907630522088354,
+    "backtest_score": 0.5556758387855965,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.3712516954553697,
+        "min_vol_floor": 0.011108694929889244
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.38370032585670955
+      },
+      "fee_filter": {
+        "safety_buffer": 0.028919907799055233,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.002058619655684707
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.06147516332255254,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_231455_dbe76b",
+    "ts": "2026-04-17T23:14:55.577915+00:00",
+    "backtest_win_rate": 0.6954732510288066,
+    "backtest_score": 0.5696845010256341,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.253375138600611,
+        "min_vol_floor": 0.005
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.4849535708286601
+      },
+      "fee_filter": {
+        "safety_buffer": 0.028200333360403507,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0025078864478986105
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.05785755180856175,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_231903_6187e6",
+    "ts": "2026-04-17T23:19:03.539722+00:00",
+    "backtest_win_rate": 0.6932270916334662,
+    "backtest_score": 0.5735323350971633,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.546213702801235,
+        "min_vol_floor": 0.013409325522391977
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.34883186981678
+      },
+      "fee_filter": {
+        "safety_buffer": 0.027622062159963066,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0016025518210353393
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.05652531979284876,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_232539_334ac5",
+    "ts": "2026-04-17T23:25:39.923235+00:00",
+    "backtest_win_rate": 0.692,
+    "backtest_score": 0.5603730643711362,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.304222335637654,
+        "min_vol_floor": 0.008274559979722975
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.37781180720004254
+      },
+      "fee_filter": {
+        "safety_buffer": 0.03313310314926578,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.002010771293209659
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.0535748414063529,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_232625_ce4e76",
+    "ts": "2026-04-17T23:26:25.796879+00:00",
+    "backtest_win_rate": 0.6956521739130435,
+    "backtest_score": 0.5890556218153999,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.753173049750794,
+        "min_vol_floor": 0.014467653975461289
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.34410415739755823
+      },
+      "fee_filter": {
+        "safety_buffer": 0.0228217097397835,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.001
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.05934871448178643,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_232743_0fff5d",
+    "ts": "2026-04-17T23:27:43.869557+00:00",
+    "backtest_win_rate": 0.6926229508196722,
+    "backtest_score": 0.5508345417192009,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.3618648477636377,
+        "min_vol_floor": 0.01595681715444185
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.48962906345032525
+      },
+      "fee_filter": {
+        "safety_buffer": 0.02253039731356278,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0026032589584370647
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.0631511933089766,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_232808_b166ad",
+    "ts": "2026-04-17T23:28:08.735553+00:00",
+    "backtest_win_rate": 0.6942148760330579,
+    "backtest_score": 0.5645308848493698,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.1132141796038297,
+        "min_vol_floor": 0.01488602001122076
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.45749691890342864
+      },
+      "fee_filter": {
+        "safety_buffer": 0.03067593566916671,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.002141477872986008
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.047242848709294676,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_234009_ca19cd",
+    "ts": "2026-04-17T23:40:09.973145+00:00",
+    "backtest_win_rate": 0.6864406779661016,
+    "backtest_score": 0.5067279164402382,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 0.9965571490630782,
+        "min_vol_floor": 0.015323355367197802
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.5205584422195856
+      },
+      "fee_filter": {
+        "safety_buffer": 0.02735692916634635,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.00229893228447054
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.04368416965120843,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_234028_a3bf0b",
+    "ts": "2026-04-17T23:40:28.993008+00:00",
+    "backtest_win_rate": 0.6910569105691057,
+    "backtest_score": 0.5623420470454052,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 1.9452154709948961,
+        "min_vol_floor": 0.006937909967099202
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.38384213778149207
+      },
+      "fee_filter": {
+        "safety_buffer": 0.028982760316253214,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0031437078042177544
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.06231507360958781,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_234311_8678fe",
+    "ts": "2026-04-17T23:43:11.461790+00:00",
+    "backtest_win_rate": 0.6963562753036437,
+    "backtest_score": 0.5877060833934489,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.930856531501515,
+        "min_vol_floor": 0.01658227566881812
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.4407979777068895
+      },
+      "fee_filter": {
+        "safety_buffer": 0.03376908305437634,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.001989359767346391
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.039444759567187355,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_234608_5a5274",
+    "ts": "2026-04-17T23:46:08.283532+00:00",
+    "backtest_win_rate": 0.6929460580912863,
+    "backtest_score": 0.5592064313609917,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 1.8720563507441013,
+        "min_vol_floor": 0.007478353529700147
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.470875681201166
+      },
+      "fee_filter": {
+        "safety_buffer": 0.029769813821515077,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0012458481105964555
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.053566111512261316,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_234717_c6831c",
+    "ts": "2026-04-17T23:47:17.041080+00:00",
+    "backtest_win_rate": 0.6885245901639344,
+    "backtest_score": 0.5481407776881326,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 1.7004542206492326,
+        "min_vol_floor": 0.008408650527220356
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.392200092149317
+      },
+      "fee_filter": {
+        "safety_buffer": 0.03605189909889381,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0018332010862744234
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.03809022458977718,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_234947_9760b4",
+    "ts": "2026-04-17T23:49:47.528395+00:00",
+    "backtest_win_rate": 0.6864406779661016,
+    "backtest_score": 0.508260563360625,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 1.028300502870522,
+        "min_vol_floor": 0.00853567346015532
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.5111486406518607
+      },
+      "fee_filter": {
+        "safety_buffer": 0.019545307700040843,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0030277056703834583
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.05335362855556113,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_235305_4e8aa4",
+    "ts": "2026-04-17T23:53:05.812286+00:00",
+    "backtest_win_rate": 0.6963562753036437,
+    "backtest_score": 0.5871277881890223,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.8887019789782267,
+        "min_vol_floor": 0.008994929626475592
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.45760325025744103
+      },
+      "fee_filter": {
+        "safety_buffer": 0.03225117049060755,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.001
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.05925660497071731,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_235721_dcd687",
+    "ts": "2026-04-17T23:57:21.645642+00:00",
+    "backtest_win_rate": 0.6885245901639344,
+    "backtest_score": 0.5440489528715406,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 1.357047714977517,
+        "min_vol_floor": 0.009188809815511737
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.3705299085445139
+      },
+      "fee_filter": {
+        "safety_buffer": 0.02123271732483103,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0012635202067836967
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.037255773838544615,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_235749_59765a",
+    "ts": "2026-04-17T23:57:49.944520+00:00",
+    "backtest_win_rate": 0.6963562753036437,
+    "backtest_score": 0.5802305409161994,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.8227679992161394,
+        "min_vol_floor": 0.009987103009610018
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.48747254969982756
+      },
+      "fee_filter": {
+        "safety_buffer": 0.039558426452568574,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0015971622083834397
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.04704369951189555,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260417_235937_747418",
+    "ts": "2026-04-17T23:59:37.966382+00:00",
+    "backtest_win_rate": 0.6890756302521008,
+    "backtest_score": 0.5303715648098779,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 1.2956058675490074,
+        "min_vol_floor": 0.010341262333405345
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.47614927306871296
+      },
+      "fee_filter": {
+        "safety_buffer": 0.03542961161798936,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.002522145888370053
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.05192385408931609,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260418_001123_1d2f3a",
+    "ts": "2026-04-18T00:11:23.379265+00:00",
+    "backtest_win_rate": 0.7008196721311475,
+    "backtest_score": 0.5997651121937526,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.18871075934691,
+        "min_vol_floor": 0.005
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.4742348750613252
+      },
+      "fee_filter": {
+        "safety_buffer": 0.031284664389199204,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0010541261805143828
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.03866303952146012,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "exp_20260418_101135_eaeb74",
+    "ts": "2026-04-18T10:11:35.022110+00:00",
+    "backtest_win_rate": 0.6523809523809524,
+    "backtest_score": 0.43456705447726823,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.5,
+        "min_vol_floor": 0.01
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.5,
+        "window_start_seconds": 10
+      },
+      "fee_filter": {
+        "safety_buffer": 0.03,
+        "max_ask_price": 0.75,
+        "maker_spread_threshold": 0.002
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.05,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260418_115719_bf7a28",
+    "ts": "2026-04-18T11:57:19.796260+00:00",
+    "backtest_win_rate": 0.6629213483146067,
+    "backtest_score": 0.41535223795185766,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.53246959694951,
+        "min_vol_floor": 0.006197442157922993
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.30432739796897834
+      },
+      "fee_filter": {
+        "safety_buffer": 0.022845436093829295,
+        "max_ask_price": 0.8,
+        "maker_spread_threshold": 0.0018347609199525282
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.03757377527789972,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  },
+  {
+    "event": "staged",
+    "experiment_id": "la_20260419_170202_e5af4a",
+    "ts": "2026-04-19T17:02:02.928314+00:00",
+    "backtest_win_rate": 0.6548223350253807,
+    "backtest_score": 0.41484909596193714,
+    "params": {
+      "_meta": {
+        "version": 2,
+        "promoted_at": null,
+        "promoted_from_experiment": null,
+        "baseline": true,
+        "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
+      },
+      "probability": {
+        "oracle_lag_seconds": 2.0,
+        "min_vol_floor": 0.01
+      },
+      "sniper": {
+        "window_open_seconds": 290,
+        "window_close_seconds": 90,
+        "window_stop_seconds": 2,
+        "early_cutoff_seconds": 180,
+        "early_z_score": 0.3,
+        "min_z_score": 0.5
+      },
+      "fee_filter": {
+        "safety_buffer": 0.03,
+        "max_ask_price": 0.75,
+        "maker_spread_threshold": 0.002
+      },
+      "indicators": {
+        "use_momentum": false,
+        "momentum_lookback_seconds": 30,
+        "momentum_min_pct": 0.05,
+        "use_spread_filter": false,
+        "max_poly_spread": 0.1
+      }
+    }
+  }
+]

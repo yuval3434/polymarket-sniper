@@ -30,9 +30,10 @@ class MarketState:
     down_best_bid: float = 0.0
     poly_last_update: float = field(default_factory=lambda: time.monotonic() + 15)
 
-    # Circuit breaker
+    # Circuit breaker (soft — auto-recoverable)
     kill_switch_active: bool = False
     kill_switch_reason: str = ""
+    kill_switch_source: str = ""   # "binance" | "polymarket" — used by stream loops for targeted recovery
 
     # Snipe guard — prevent firing more than once per market window
     snipe_fired: bool = False

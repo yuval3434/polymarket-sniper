@@ -1,0 +1,6 @@
+  WARNING: The script watchmedo.exe is installed in 'C:\Users\yuval\AppData\Local\Programs\Python\Python310\Scripts' which is not on PATH.
+  Consider adding this directory to PATH or, if you prefer to suppress this warning, use --no-warn-script-location.
+  WARNING: The script jsonschema.exe is installed in 'C:\Users\yuval\AppData\Local\Programs\Python\Python310\Scripts' which is not on PATH.
+  Consider adding this directory to PATH or, if you prefer to suppress this warning, use --no-warn-script-location.
+  WARNING: The script streamlit.exe is installed in 'C:\Users\yuval\AppData\Local\Programs\Python\Python310\Scripts' which is not on PATH.
+  Consider adding this directory to PATH or, if you prefer to suppress this warning, use --no-warn-script-location.

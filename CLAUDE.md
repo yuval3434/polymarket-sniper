@@ -79,7 +79,7 @@ polymarket_sniper/
 │   └── order_manager.py        ← ClobClient wrapper, maker→FAK fallback
 │
 ├── monitor/
-│   └── kill_switch.py          ← Feed staleness watchdog (3s threshold)
+│   └── kill_switch.py          ← Feed staleness watchdog (3s threshold, soft/auto-recovery)
 │
 ├── simulation/
 │   └── paper_trader.py         ← CSV paper trade logger + resolver
@@ -97,14 +97,20 @@ polymarket_sniper/
 ## Terminal Run Commands
 
 ```bash
-# Standard run (paper trade mode — safe)
-py main.py
+# ── Execution modes ───────────────────────────────────────────────────────
+py main.py                   # paper trade (safe default — no real funds)
+py main.py --mode paper      # explicit paper mode (identical to above)
+py main.py --mode live       # LIVE trading — validates credentials, 5s countdown
 
-# Score pending paper trades after session
-py main.py --resolve
+# ── Live trading limits (HARD-CODED — never change without testing) ───────
+# Minimum bet : $10 USDC per trade
+# Maximum bet : $15 USDC per trade
+# These clamps are enforced in core/risk_manager.py:apply_live_clamp()
+# regardless of what Kelly sizing suggests. Any deviation is logged as WARNING.
 
-# Print quick DB stats and exit
-py main.py --status
+# ── Utility commands ──────────────────────────────────────────────────────
+py main.py --resolve         # score pending paper trades and exit
+py main.py --status          # print session stats from DB and exit
 
 # Install / update dependencies
 py -m pip install -r requirements.txt
@@ -149,6 +155,23 @@ MAX_DRAWDOWN_HALT_USD=50.0      # Circuit breaker — halt if session loss > $50
 MAX_DRAWDOWN_HALT_PCT=20.0      # Circuit breaker — halt if loss > 20% of bank
 KELLY_FRACTION=0.25             # Quarter-Kelly for bet sizing
 ```
+
+---
+
+## Kill Switch — Auto-Recovery Behaviour (v1.1+)
+
+The kill switch is **soft** — it pauses trading but never exits the process.
+
+| Event | Action |
+|---|---|
+| Binance feed stale > 3s | `kill_switch_active=True`, `kill_switch_source="binance"`, `cancel_all()` called |
+| Polymarket feed stale > 3s | Same, `kill_switch_source="polymarket"` |
+| WS reconnects | Stream accumulates **3 consecutive valid ticks** |
+| Buffer satisfied | `kill_switch_active=False`, logs `Kill Switch disengaged`, trading resumes |
+
+**Binance reconnect backoff:** 1s → 2s → 4s → 8s → 10s max. After 3 WS failures, falls back to REST polling (200ms) until WS recovers.
+
+**Polymarket feed** does not yet have a dedicated self-healing loop — if it goes stale the bot pauses but requires manual investigation.
 
 ---
 

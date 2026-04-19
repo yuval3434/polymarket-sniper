@@ -1,23 +1,44 @@
 """
-Position Manager Agent — Active Trade Management
-=================================================
-After a snipe fires, this agent watches the open position every 500ms
-and decides whether to:
-  - HOLD  : stay until expiry (default)
-  - TP    : take profit early if current bid > take_profit_threshold
-  - SL    : stop loss if current bid < stop_loss_threshold
+Position Manager Agent — Trailing Stop-Loss System
+===================================================
+Exit logic overview:
 
-Mathematics:
-  Entry price  = P   (e.g. 0.62)
-  Current bid  = B   (what the market will pay NOW for our shares)
+  INITIAL STATE
+  ─────────────
+  Entry price = P  (e.g. $0.60/share)
+  Initial stop = P × 0.50  (e.g. $0.30  →  −50% loss cap)
+  No hard take-profit: winning trades are held open.
 
-  Hold value (expected) = P_true * 1.00 + (1-P_true) * 0.00 = P_true
-  Sell now value        = B  (certain)
+  TRAILING STOP STATE MACHINE  (trail_level)
+  ───────────────────────────────────────────
+  Level 0 — Initial stop at P × 0.50
+    • Bid rises to P × 1.25 (+25%)  →  advance to Level 1
 
-  → Sell early if B > P_true  (lock in certain profit > expected)
-  → Cut loss  if B < stop_loss_multiplier * P  (accept small loss before bigger one)
+  Level 1 — Stop moves to BREAKEVEN (P × 1.00)
+    • Trade is now "risk-free": worst case is 0% loss
+    • Bid rises to P × 1.50 (+50%)  →  advance to Level 2
 
-All decisions and outcomes are written to SQLite and the PnL tracker.
+  Level 2 — Stop moves to +25% profit (P × 1.25)
+    • Guaranteed minimum profit of +25% if stopped out
+    • Upside remains unlimited until expiry
+
+  At any level: if bid drops to or below trailing_stop_price → TRAILING_STOP exit.
+
+  HOLD-TO-EXPIRY OVERRIDE
+  ────────────────────────
+  If the position is deeply in the money (bid > 0.85) with < 60s on the clock,
+  the trailing stop is suspended. The bot consciously waits for the full $1.00
+  expiry payout rather than selling at $0.87 for a smaller gain.
+  Exception: if bid drops below the trailing stop even during HTE window, we exit.
+
+  RISK/REWARD CALCULATION
+  ───────────────────────
+  Initial risk per share = P − (P × 0.50) = P × 0.50
+  Realized reward        = exit_price − P
+  R:R ratio              = reward / initial_risk
+    > 1.0  →  made more than was risked  (target)
+    = 0.0  →  breakeven exit
+    < 0.0  →  stop-loss (negative, capped at −1.0 on full stop-out)
 """
 from __future__ import annotations
 
@@ -28,7 +49,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional
 
-from core.database import log_decision, log_trade, update_decision_outcome
+from core.database import (
+    async_log_decision,
+    async_log_trade,
+    async_update_decision_outcome,
+)
 from core.pnl_tracker import PnLTracker, TradeRecord
 from core.risk_manager import RiskManager
 from core.tracker import TradeEntry, record_trade as _tracker_record
@@ -37,11 +62,19 @@ from market.state import MarketState
 
 logger = logging.getLogger(__name__)
 
-# Early exit thresholds (can be overridden via strategy_config.json)
-TAKE_PROFIT_MULTIPLIER  = 1.25   # sell if bid > entry * 1.25 (25% gain on share price)
-STOP_LOSS_MULTIPLIER    = 0.45   # sell if bid < entry * 0.45 (55% loss on share price)
-MONITOR_INTERVAL_S      = 0.5    # check position every 500ms
-MIN_HOLD_SECONDS        = 5.0    # never exit within 5s of entry (avoid noise)
+# ── Trailing stop parameters ───────────────────────────────────────────────
+INITIAL_STOP_MULT   = 0.50   # initial stop = entry × 0.50  (−50% loss)
+TRAIL_L1_TRIGGER    = 1.25   # +25% profit  → stop moves to breakeven
+TRAIL_L2_TRIGGER    = 1.50   # +50% profit  → stop moves to +25%
+TRAIL_L1_STOP_MULT  = 1.00   # breakeven stop
+TRAIL_L2_STOP_MULT  = 1.25   # +25% guaranteed floor
+
+# ── Hold-to-expiry parameters ──────────────────────────────────────────────
+HTE_BID_THRESHOLD   = 0.85   # bid must be above this to trigger HTE
+HTE_TAU_THRESHOLD   = 60.0   # seconds remaining when HTE kicks in
+
+MONITOR_INTERVAL_S  = 0.5    # position check every 500ms
+MIN_HOLD_SECONDS    = 5.0    # ignore exits within 5s of entry (noise)
 
 
 @dataclass
@@ -55,24 +88,80 @@ class OpenPosition:
     size_shares:    float
     entry_time:     float = field(default_factory=time.monotonic)
     entry_ts_iso:   str   = field(default_factory=lambda: datetime.now(tz=timezone.utc).isoformat())
-    decision_id:    int = 0
+    decision_id:    int   = 0
     p_true:         float = 0.5
     z_score:        float = 0.0
-    is_dry_run:     bool = True
+    is_dry_run:     bool  = True
+
+    # ── Trailing stop state (populated in __post_init__) ──────────────────
+    # trail_level tracks which ratchet tier we're on:
+    #   0 = initial stop (entry × 0.50)
+    #   1 = breakeven stop (entry × 1.00) — triggered at +25%
+    #   2 = +25% floor stop (entry × 1.25) — triggered at +50%
+    trail_level:         int   = field(init=False)
+    trailing_stop_price: float = field(init=False)
+    peak_bid:            float = field(init=False)
+    initial_risk_per_share: float = field(init=False)
+
+    def __post_init__(self) -> None:
+        # Initial stop = 50% of entry price (e.g. entry=0.60 → stop=0.30)
+        self.trailing_stop_price    = max(self.entry_price * INITIAL_STOP_MULT, 0.01)
+        self.peak_bid               = self.entry_price
+        self.trail_level            = 0
+        # Locked in at open for R:R calculation — never changes
+        self.initial_risk_per_share = self.entry_price - self.trailing_stop_price
 
     def age_seconds(self) -> float:
         return time.monotonic() - self.entry_time
 
     def current_bid(self, state: MarketState) -> float:
-        if self.token_side == "UP":
-            return state.up_best_bid
-        return state.down_best_bid
+        return state.up_best_bid if self.token_side == "UP" else state.down_best_bid
 
-    def take_profit_threshold(self) -> float:
-        return min(self.entry_price * TAKE_PROFIT_MULTIPLIER, 0.98)
+    def update_trail(self, bid: float) -> bool:
+        """
+        Ratchet the trailing stop upward as the trade moves in our favour.
+        Returns True if the stop level was advanced (for logging).
 
-    def stop_loss_threshold(self) -> float:
-        return max(self.entry_price * STOP_LOSS_MULTIPLIER, 0.01)
+        Ratchet math:
+          Level 0→1: bid reaches entry × 1.25  →  stop = entry × 1.00
+            e.g. entry=0.60, bid=0.75  →  stop moves from 0.30 to 0.60
+            Now worst-case is 0% loss instead of −50%.
+
+          Level 1→2: bid reaches entry × 1.50  →  stop = entry × 1.25
+            e.g. entry=0.60, bid=0.90  →  stop moves from 0.60 to 0.75
+            Now minimum locked-in profit is +25%.
+        """
+        self.peak_bid = max(self.peak_bid, bid)
+        advanced = False
+
+        if self.trail_level < 2 and self.peak_bid >= self.entry_price * TRAIL_L2_TRIGGER:
+            # +50% peak reached → lock in +25% floor
+            new_stop = self.entry_price * TRAIL_L2_STOP_MULT
+            if new_stop > self.trailing_stop_price:
+                self.trailing_stop_price = new_stop
+                self.trail_level = 2
+                advanced = True
+
+        elif self.trail_level < 1 and self.peak_bid >= self.entry_price * TRAIL_L1_TRIGGER:
+            # +25% peak reached → move stop to breakeven
+            new_stop = self.entry_price * TRAIL_L1_STOP_MULT
+            if new_stop > self.trailing_stop_price:
+                self.trailing_stop_price = new_stop
+                self.trail_level = 1
+                advanced = True
+
+        return advanced
+
+    def risk_reward_ratio(self, exit_price: float) -> float:
+        """
+        Realized R:R = (exit − entry) / initial_risk_per_share
+          > 0  →  profitable exit
+          = 0  →  breakeven
+          < 0  →  loss (minimum −1.0 on full stop-out)
+        """
+        if self.initial_risk_per_share <= 0:
+            return 0.0
+        return (exit_price - self.entry_price) / self.initial_risk_per_share
 
 
 class PositionManager:
@@ -85,9 +174,10 @@ class PositionManager:
     ) -> None:
         self.pnl_tracker      = pnl_tracker
         self.risk_manager     = risk_manager
-        self.outcome_queue    = outcome_queue  # sends closed TradeRecord to Evaluator
+        self.outcome_queue    = outcome_queue
         self.strategy_version = strategy_version
         self._position: Optional[OpenPosition] = None
+        self.order_manager    = None  # wired by main.py after both are created
 
     # ------------------------------------------------------------------
     # Position lifecycle
@@ -109,7 +199,7 @@ class PositionManager:
             logger.warning("Overwriting existing position — should not happen")
 
         size_shares = size_usdc / entry_price
-        dec_id = log_decision(
+        asyncio.create_task(async_log_decision(
             agent="POSITION_MANAGER",
             decision_type="SNIPE",
             details={
@@ -121,7 +211,8 @@ class PositionManager:
                 "z_score": z_score,
                 "dry_run": is_dry_run,
             },
-        )
+        ))
+        dec_id = 0
         self._position = OpenPosition(
             market_id=market_id,
             condition_id=condition_id,
@@ -135,13 +226,14 @@ class PositionManager:
             z_score=z_score,
             is_dry_run=is_dry_run,
         )
+        pos = self._position
+        arrow = "▲" if token_side == "UP" else "▼"
+        mode  = "[PAPER]" if is_dry_run else "[LIVE]"
         logger.info(
-            "Position opened: %s %s @ %.4f | $%.2f | P=%.3f | Z=%.3f%s",
+            "Position opened: %s %s @ %.4f | $%.2f | P=%.3f | Z=%.3f | stop=%.4f%s",
             token_side, market_id, entry_price, size_usdc, p_true, z_score,
-            " [DRY RUN]" if is_dry_run else " [LIVE]",
+            pos.trailing_stop_price, " [DRY RUN]" if is_dry_run else " [LIVE]",
         )
-        arrow   = "▲" if token_side == "UP" else "▼"
-        mode    = "[PAPER]" if is_dry_run else "[LIVE]"
         print(
             f"\n{'═'*62}\n"
             f"  BET PLACED  {arrow} {token_side}  {mode}\n"
@@ -149,13 +241,15 @@ class PositionManager:
             f"  Entry   : ${entry_price:.4f}   Size: ${size_usdc:.2f} USDC"
             f"  ({size_shares:.4f} shares)\n"
             f"  P(win)  : {p_true:.1%}   Z-score: {z_score:.3f}\n"
+            f"  Stop    : ${pos.trailing_stop_price:.4f}  (−50% / Level 0)\n"
+            f"  Trail   : +25% → breakeven | +50% → lock +25% floor\n"
             f"{'═'*62}\n"
         )
 
     async def monitor_loop(self, state: MarketState) -> None:
         """
-        Background loop: checks open position every 500ms for early exit signals.
-        Also closes position at expiry if not exited early.
+        Runs every 500ms. Implements the trailing stop state machine and
+        hold-to-expiry logic. Never exits the loop — runs for the session lifetime.
         """
         while True:
             await asyncio.sleep(MONITOR_INTERVAL_S)
@@ -163,36 +257,52 @@ class PositionManager:
             if self._position is None:
                 continue
 
-            pos   = self._position
-            tau   = state.seconds_to_expiry()
-            bid   = pos.current_bid(state)
-            age   = pos.age_seconds()
+            pos = self._position
+            tau = state.seconds_to_expiry()
+            bid = pos.current_bid(state)
+            age = pos.age_seconds()
 
-            # ---- Expiry close ----
+            # ── Expiry close ──────────────────────────────────────────────
             if tau <= 0:
                 await self._close_at_expiry(pos, state)
                 continue
 
-            # Don't exit too early after entry (noise suppression)
+            # ── Noise suppression: ignore exits immediately after entry ───
             if age < MIN_HOLD_SECONDS:
                 continue
 
-            # ---- Take Profit ----
-            if bid >= pos.take_profit_threshold():
+            # ── Advance trailing stop (ratchet up, never down) ────────────
+            advanced = pos.update_trail(bid)
+            if advanced:
+                level_labels = {1: "BREAKEVEN", 2: "+25% FLOOR"}
                 logger.info(
-                    "TAKE PROFIT: bid=%.4f >= threshold=%.4f (entry=%.4f)",
-                    bid, pos.take_profit_threshold(), pos.entry_price,
+                    "TRAIL ADVANCED to Level %d (%s): stop=%.4f | bid=%.4f | entry=%.4f",
+                    pos.trail_level, level_labels.get(pos.trail_level, "?"),
+                    pos.trailing_stop_price, bid, pos.entry_price,
                 )
-                await self._close_early(pos, bid, "TAKE_PROFIT", state)
+
+            # ── Hold-to-Expiry override ───────────────────────────────────
+            in_hte_window = (bid > HTE_BID_THRESHOLD and tau < HTE_TAU_THRESHOLD)
+            if in_hte_window and bid > pos.trailing_stop_price:
+                logger.debug(
+                    "HTE: holding to expiry | bid=%.4f tau=%.0fs stop=%.4f",
+                    bid, tau, pos.trailing_stop_price,
+                )
                 continue
 
-            # ---- Stop Loss ----
-            if bid <= pos.stop_loss_threshold():
+            # ── Trailing Stop check ───────────────────────────────────────
+            if bid <= pos.trailing_stop_price:
+                exit_label = {
+                    0: "STOP_LOSS",
+                    1: "TRAIL_BREAKEVEN",
+                    2: "TRAIL_PROFIT_FLOOR",
+                }.get(pos.trail_level, "TRAILING_STOP")
                 logger.info(
-                    "STOP LOSS: bid=%.4f <= threshold=%.4f (entry=%.4f)",
-                    bid, pos.stop_loss_threshold(), pos.entry_price,
+                    "%s: bid=%.4f <= stop=%.4f | level=%d | entry=%.4f",
+                    exit_label, bid, pos.trailing_stop_price,
+                    pos.trail_level, pos.entry_price,
                 )
-                await self._close_early(pos, bid, "STOP_LOSS", state)
+                await self._close_early(pos, bid, exit_label, state)
                 continue
 
     # ------------------------------------------------------------------
@@ -206,31 +316,51 @@ class PositionManager:
         exit_type: str,
         state: MarketState,
     ) -> None:
-        pnl_usd = (exit_bid - pos.entry_price) * pos.size_shares
-        pnl_pct = ((exit_bid / pos.entry_price) - 1.0) * 100
+        actual_exit_price = exit_bid
+
+        if not pos.is_dry_run and self.order_manager is not None:
+            logger.info(
+                "Initiating smart-retry SELL [%s]: token=%s shares=%.4f bid=%.4f",
+                exit_type, pos.token_id, pos.size_shares, exit_bid,
+            )
+            success, actual_exit_price = await self.order_manager.sell_with_retry(
+                token_id=pos.token_id,
+                size_shares=pos.size_shares,
+                bid_price=exit_bid,
+            )
+
+            if not success:
+                halt_msg = (
+                    f"SELL_EXHAUSTED [{exit_type}]: token={pos.token_id} "
+                    f"size={pos.size_shares:.4f} bid={exit_bid:.4f} — "
+                    "Manual intervention required!"
+                )
+                logger.critical("CRITICAL_ERROR: %s", halt_msg)
+                self.risk_manager.force_halt(halt_msg)
+                return  # keep _position open for next monitor tick
+
+        pnl_usd = (actual_exit_price - pos.entry_price) * pos.size_shares
+        pnl_pct = ((actual_exit_price / pos.entry_price) - 1.0) * 100
         win     = pnl_usd > 0
-        self._finalise(pos, exit_bid, exit_type, pnl_usd, pnl_pct, win)
+        await self._finalise(pos, actual_exit_price, exit_type, pnl_usd, pnl_pct, win)
 
     async def _close_at_expiry(self, pos: OpenPosition, state: MarketState) -> None:
-        """
-        At expiry we don't yet know the resolution. We use Polymarket bid as proxy
-        (it converges to 0 or 1 at expiry). In dry_run, we read the final
-        market bid to determine effective outcome.
-        """
         bid = pos.current_bid(state)
-        # At or near expiry, bid collapses: >0.90 = very likely WIN, <0.10 = very likely LOSS
         win = bid >= 0.50
         exit_price = 1.0 if win else 0.0
         pnl_usd = (exit_price - pos.entry_price) * pos.size_shares
         pnl_pct = ((exit_price / pos.entry_price) - 1.0) * 100
-        self._finalise(pos, exit_price, "EXPIRY", pnl_usd, pnl_pct, win)
+        await self._finalise(pos, exit_price, "EXPIRY", pnl_usd, pnl_pct, win)
 
-    def close_position_with_resolution(
+        # Queue claim — retried every 2min until oracle resolves (can take 5-30min)
+        if win and not pos.is_dry_run and self.order_manager is not None:
+            self.order_manager.add_pending_claim(pos.condition_id, pos.token_side)
+
+    async def close_position_with_resolution(
         self,
-        resolution: str,   # "WIN" or "LOSS"
+        resolution: str,
         actual_exit_price: float,
     ) -> None:
-        """Called externally when Polymarket resolution is known (e.g. from paper_trader resolver)."""
         if self._position is None:
             return
         pos     = self._position
@@ -238,9 +368,9 @@ class PositionManager:
         exit_p  = actual_exit_price
         pnl_usd = (exit_p - pos.entry_price) * pos.size_shares
         pnl_pct = ((exit_p / pos.entry_price) - 1.0) * 100
-        self._finalise(pos, exit_p, "EXPIRY", pnl_usd, pnl_pct, win)
+        await self._finalise(pos, exit_p, "EXPIRY", pnl_usd, pnl_pct, win)
 
-    def _finalise(
+    async def _finalise(
         self,
         pos: OpenPosition,
         exit_price: float,
@@ -249,10 +379,16 @@ class PositionManager:
         pnl_pct: float,
         win: bool,
     ) -> None:
-        self._position = None  # clear first to avoid re-entry
+        self._position = None  # clear first — prevents re-entry
 
-        # SQLite trade log
-        trade_id = log_trade(
+        # ── R:R calculation ───────────────────────────────────────────────
+        rr = pos.risk_reward_ratio(exit_price)
+        # Interpret: rr=1.0 means "made exactly as much as was risked"
+        #            rr=2.0 means "made 2× the amount risked"
+        #            rr=-1.0 means "full stop-out (lost 100% of risked capital)"
+        rr_str = f"{rr:+.2f}R"
+
+        trade_id = await async_log_trade(
             market_id=pos.market_id,
             condition_id=pos.condition_id,
             token_side=pos.token_side,
@@ -269,14 +405,12 @@ class PositionManager:
             dry_run=pos.is_dry_run,
         )
 
-        # Update the original decision row
         if pos.decision_id:
-            update_decision_outcome(
+            await async_update_decision_outcome(
                 pos.decision_id,
-                f"{'WIN' if win else 'LOSS'} via {exit_type} exit_price={exit_price:.4f}",
+                f"{'WIN' if win else 'LOSS'} via {exit_type} exit={exit_price:.4f} rr={rr:.2f}R",
             )
 
-        # Build TradeRecord for PnL display
         record = TradeRecord(
             trade_id=trade_id,
             market_id=pos.market_id,
@@ -293,7 +427,6 @@ class PositionManager:
         self.pnl_tracker.record(record)
         self.risk_manager.record_trade_result(pnl_usd, win)
 
-        # Permanent CSV log for the dashboard
         try:
             _tracker_record(TradeEntry(
                 trade_id=trade_id,
@@ -314,16 +447,33 @@ class PositionManager:
         except Exception as _exc:
             logger.warning("Tracker write failed: %s", _exc)
 
-        # Send to Evaluator for post-mortem analysis
+        # ── Trade close summary ───────────────────────────────────────────
+        outcome_icon = "WIN" if win else "LOSS"
+        print(
+            f"\n{'═'*62}\n"
+            f"  TRADE CLOSED  [{exit_type}]  →  {outcome_icon}\n"
+            f"  Entry  : ${pos.entry_price:.4f}   Exit: ${exit_price:.4f}\n"
+            f"  P&L    : ${pnl_usd:+.4f}  ({pnl_pct:+.1f}%)\n"
+            f"  R:R    : {rr_str}  (trail level reached: {pos.trail_level})\n"
+            f"  Size   : ${pos.size_usdc:.2f} USDC  ({pos.size_shares:.4f} shares)\n"
+            f"{'═'*62}\n"
+        )
+        logger.info(
+            "CLOSED [%s] %s %s | entry=%.4f exit=%.4f | PnL=$%.4f (%.1f%%) | R:R=%s | trail_lvl=%d",
+            exit_type, pos.token_side, pos.market_id,
+            pos.entry_price, exit_price, pnl_usd, pnl_pct, rr_str, pos.trail_level,
+        )
+
         try:
             self.outcome_queue.put_nowait({
-                "trade_id": trade_id,
-                "pos": pos,
+                "trade_id":   trade_id,
+                "pos":        pos,
                 "exit_price": exit_price,
-                "exit_type": exit_type,
-                "pnl_usd": pnl_usd,
-                "pnl_pct": pnl_pct,
-                "win": win,
+                "exit_type":  exit_type,
+                "pnl_usd":    pnl_usd,
+                "pnl_pct":    pnl_pct,
+                "win":        win,
+                "rr":         rr,
             })
         except asyncio.QueueFull:
             pass

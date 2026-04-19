@@ -178,17 +178,24 @@ def update_shadow_outcome(
 def evaluate(
     vstate: ValidationState,
     live_report: AnalysisReport,
+    live_trade_count: int = 0,
 ) -> tuple[ValidationStatus, str]:
     """
     Check all five validation gates.
     Returns (status, reason_string).
+
+    live_trade_count: resolved live trades from trading_bot.db that count
+    toward Gate 1's minimum, so the bot can learn from real trades even
+    when shadow paper trades are scarce.
     """
     settled = vstate.settled_trades
 
-    # Gate 1: minimum trade count
-    if settled < MIN_PAPER_TRADES:
+    # Gate 1: minimum trade count — shadow trades + live DB trades combined
+    total_settled = settled + live_trade_count
+    if total_settled < MIN_PAPER_TRADES:
         return ValidationStatus.VALIDATING, (
-            f"Need {MIN_PAPER_TRADES} settled trades, have {settled}"
+            f"Need {MIN_PAPER_TRADES} settled trades, "
+            f"have {settled} shadow + {live_trade_count} live = {total_settled}"
         )
 
     # Gate 2: minimum time
@@ -205,12 +212,17 @@ def evaluate(
         vstate.rejection_reason = reason
         return ValidationStatus.REJECTED, reason
 
-    # Gate 4: win rate improvement
+    # Gate 4: win rate improvement — use live DB win rate as baseline
     baseline_wr = live_report.win_rate if live_report.win_rate > 0 else 0.50
+    # When shadow trades are few, blend with live win rate for stability
+    if settled > 0:
+        candidate_wr = vstate.win_rate
+    else:
+        candidate_wr = live_report.win_rate  # no shadow trades yet — treat live as candidate
     required_wr = baseline_wr + MIN_IMPROVEMENT_PCT
-    if vstate.win_rate < required_wr:
+    if candidate_wr < required_wr:
         reason = (
-            f"Win rate {vstate.win_rate:.1%} < required {required_wr:.1%} "
+            f"Win rate {candidate_wr:.1%} < required {required_wr:.1%} "
             f"(baseline {baseline_wr:.1%} + {MIN_IMPROVEMENT_PCT:.0%})"
         )
         vstate.status = ValidationStatus.REJECTED
@@ -226,8 +238,9 @@ def evaluate(
 
     vstate.status = ValidationStatus.APPROVED
     return ValidationStatus.APPROVED, (
-        f"All gates passed: win_rate={vstate.win_rate:.1%} "
-        f"mean_ev={vstate.mean_ev:.4f} trades={settled} "
+        f"All gates passed: win_rate={candidate_wr:.1%} "
+        f"mean_ev={vstate.mean_ev:.4f} "
+        f"trades={settled} shadow + {live_trade_count} live "
         f"hours={vstate.elapsed_hours:.1f}"
     )
 

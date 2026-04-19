@@ -13,11 +13,15 @@ logger = logging.getLogger(__name__)
 
 # Defaults (overridden by strategy_config.json)
 _MAX_DRAWDOWN_HALT_USD  = float(os.environ.get("MAX_DRAWDOWN_HALT_USD", "50.0"))
-_MAX_DRAWDOWN_HALT_PCT  = float(os.environ.get("MAX_DRAWDOWN_HALT_PCT", "20.0"))  # % of starting bank
+_MAX_DRAWDOWN_HALT_PCT  = float(os.environ.get("MAX_DRAWDOWN_HALT_PCT", "30.0"))  # % of starting bank (was 20%, too tight for $10 bets)
 _KELLY_FRACTION         = float(os.environ.get("KELLY_FRACTION", "0.25"))         # quarter-Kelly
 _MIN_BET_USDC           = float(os.environ.get("MIN_BET_USDC", "1.0"))
 _MAX_BET_USDC           = float(os.environ.get("MAX_BET_USDC", "25.0"))
 _DEFAULT_BET_USDC       = float(os.environ.get("MAX_POSITION_USDC", "10.0"))
+
+# Hard-coded live-mode guardrails — never changed by config or Kelly
+LIVE_MIN_BET_USDC: float = 10.0
+LIVE_MAX_BET_USDC: float = 15.0
 
 
 class RiskManager:
@@ -75,6 +79,12 @@ class RiskManager:
         self.halt_reason = ""
         logger.warning("Circuit breaker reset manually")
 
+    def force_halt(self, reason: str) -> None:
+        """Immediate halt regardless of drawdown — used for critical execution failures."""
+        self.halted = True
+        self.halt_reason = reason
+        logger.critical("FORCED HALT: %s", reason)
+
     # ------------------------------------------------------------------
     # Kelly-fractional bet sizing
     # ------------------------------------------------------------------
@@ -88,6 +98,7 @@ class RiskManager:
           because a $1 share pays $1 at expiry on Polymarket).
 
         We use a reduced fraction (quarter-Kelly by default) for safety.
+        Returns the raw Kelly bet — call apply_live_clamp() for live guardrails.
         """
         if p_win <= 0 or p_win >= 1:
             return _DEFAULT_BET_USDC
@@ -98,6 +109,44 @@ class RiskManager:
         bet = self.kelly_fraction * f_star * self.current_bank
         bet = max(_MIN_BET_USDC, min(_MAX_BET_USDC, bet))
         return round(bet, 2)
+
+    def apply_live_clamp(self, kelly_bet: float) -> float | None:
+        """
+        Enforce live-mode hard guardrails: $10 min / $15 max.
+
+        Returns the clamped bet size, or None if the trade must be rejected
+        (Kelly suggested ≤ 0, meaning no statistical edge was found).
+
+        Logs a warning whenever the bet is adjusted.
+        """
+        if kelly_bet <= 0:
+            logger.warning(
+                "Live guardrail: Kelly bet=%.2f ≤ 0 — no edge detected, trade REJECTED",
+                kelly_bet,
+            )
+            return None
+
+        clamped = kelly_bet
+
+        if kelly_bet < LIVE_MIN_BET_USDC:
+            clamped = LIVE_MIN_BET_USDC
+            logger.warning(
+                "Live guardrail: Kelly bet $%.2f < minimum $%.2f — "
+                "flooring to $%.2f  [GUARDRAIL APPLIED]",
+                kelly_bet, LIVE_MIN_BET_USDC, clamped,
+            )
+        elif kelly_bet > LIVE_MAX_BET_USDC:
+            clamped = LIVE_MAX_BET_USDC
+            logger.warning(
+                "Live guardrail: Kelly bet $%.2f > maximum $%.2f — "
+                "capping to $%.2f  [GUARDRAIL APPLIED]",
+                kelly_bet, LIVE_MAX_BET_USDC, clamped,
+            )
+        else:
+            logger.debug("Live guardrail: Kelly bet $%.2f is within [$%.2f, $%.2f] ✓",
+                         kelly_bet, LIVE_MIN_BET_USDC, LIVE_MAX_BET_USDC)
+
+        return round(clamped, 2)
 
     # ------------------------------------------------------------------
     # Rolling win rate

@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
 
-from core.database import fetch_recent_ticks, fetch_recent_trades, log_decision
+from core.database import async_log_decision, fetch_recent_ticks, fetch_recent_trades
 
 logger = logging.getLogger(__name__)
 
@@ -171,7 +171,7 @@ class Evaluator:
             }
             confidence = 0.55
 
-        log_decision(
+        await async_log_decision(
             agent="EVALUATOR",
             decision_type="POST_MORTEM",
             details={
@@ -208,7 +208,7 @@ class Evaluator:
           - Trending strongly → enable momentum filter
           - Low spread activity → tighten safety buffer
         """
-        ticks = fetch_recent_ticks(market_id, n=360)  # ~30min at 5s sampling
+        ticks = await asyncio.to_thread(fetch_recent_ticks, market_id, 360)  # ~30min at 5s sampling
         if len(ticks) < 20:
             return {}
 
@@ -248,7 +248,7 @@ class Evaluator:
             )
 
         if fixes:
-            log_decision(
+            await async_log_decision(
                 agent="EVALUATOR",
                 decision_type="MARKET_PULSE",
                 details={"ann_vol": ann_vol, "net_move_pct": net_move_pct, "fixes": fixes},
