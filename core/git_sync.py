@@ -52,26 +52,61 @@ _TRADE_FIELDNAMES = [
 # ---------------------------------------------------------------------------
 
 def export_trades_to_csv() -> int:
-    """Write all trades from trading_bot.db into trades_history.csv. Returns row count."""
+    """
+    Merge local DB trades with any existing trades_history.csv (from other machines)
+    and write the combined, deduplicated result back to trades_history.csv.
+    Dedup key: (timestamp, market_id, token_side) — stable across machines.
+    Returns total row count written.
+    """
+    # 1. Load local DB trades
     try:
         from core.database import get_conn
         with get_conn() as conn:
             rows = conn.execute("SELECT * FROM trades ORDER BY id ASC").fetchall()
-        trades = [dict(r) for r in rows]
+        local_trades = [dict(r) for r in rows]
     except Exception as exc:
         logger.warning("git_sync: DB export failed — %s", exc)
         return 0
 
-    if not trades:
+    # 2. Load existing CSV trades from other machines (if any)
+    existing: list[dict] = []
+    if os.path.exists(_TRADES_CSV):
+        try:
+            with open(_TRADES_CSV, newline="") as f:
+                existing = list(csv.DictReader(f))
+        except Exception as exc:
+            logger.warning("git_sync: could not read existing CSV — %s", exc)
+
+    # 3. Merge with dedup — local DB wins on conflict (authoritative source)
+    seen: set[tuple] = set()
+    merged: list[dict] = []
+
+    for t in local_trades:
+        key = (str(t.get("timestamp", "")), str(t.get("market_id", "")), str(t.get("token_side", "")))
+        if key not in seen:
+            seen.add(key)
+            merged.append(t)
+
+    for t in existing:
+        key = (str(t.get("timestamp", "")), str(t.get("market_id", "")), str(t.get("token_side", "")))
+        if key not in seen:
+            seen.add(key)
+            merged.append(t)
+
+    if not merged:
         return 0
+
+    # 4. Sort by timestamp so CSV is chronological across all machines
+    merged.sort(key=lambda r: str(r.get("timestamp", "")))
 
     with open(_TRADES_CSV, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=_TRADE_FIELDNAMES, extrasaction="ignore")
         writer.writeheader()
-        writer.writerows(trades)
+        writer.writerows(merged)
 
-    logger.debug("git_sync: exported %d trades to trades_history.csv", len(trades))
-    return len(trades)
+    logger.debug("git_sync: exported %d trades (%d local + %d from CSV) to trades_history.csv",
+                 len(merged), len(local_trades), len(existing))
+    return len(merged)
 
 
 # ---------------------------------------------------------------------------
