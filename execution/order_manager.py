@@ -97,7 +97,7 @@ class OrderManager:
             logger.error("cancel_all() failed: %s", exc)
 
     async def verify_trade(self, order_id: str) -> None:
-        """Query open orders and positions immediately after a trade to confirm API visibility."""
+        """Query open orders after a trade to confirm API visibility."""
         if self._client is None:
             return
         loop = asyncio.get_event_loop()
@@ -106,11 +106,6 @@ class OrderManager:
             logger.info("POST-TRADE open orders: %s", open_orders)
         except Exception as exc:
             logger.warning("get_orders() failed: %s", exc)
-        try:
-            positions = await loop.run_in_executor(None, self._client.get_positions)
-            logger.info("POST-TRADE positions: %s", positions)
-        except Exception as exc:
-            logger.warning("get_positions() failed: %s", exc)
 
     # ------------------------------------------------------------------
     # Auto-claim: persistent retry loop for post-expiry redemption

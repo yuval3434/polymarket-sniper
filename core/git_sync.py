@@ -214,14 +214,12 @@ def git_push() -> bool:
 
 async def git_sync_loop() -> None:
     """Runs every GIT_SYNC_INTERVAL seconds. Exports, pulls, imports, pushes."""
-    logger.info("git_sync: loop started (interval=%ds)", GIT_SYNC_INTERVAL)
+    logger.info("git_sync: loop started (interval=%ds) — first sync in 30s", GIT_SYNC_INTERVAL)
 
-    # On first startup: pull remote data and import into local DB
-    await asyncio.to_thread(git_pull)
-    await asyncio.to_thread(import_trades_from_csv)
+    # Delay first sync so the event loop is fully running before we hit the network
+    await asyncio.sleep(30)
 
     while True:
-        await asyncio.sleep(GIT_SYNC_INTERVAL)
         try:
             await asyncio.to_thread(export_trades_to_csv)
             await asyncio.to_thread(git_pull)
@@ -231,3 +229,4 @@ async def git_sync_loop() -> None:
             raise
         except Exception as exc:
             logger.warning("git_sync: cycle error — %s", exc)
+        await asyncio.sleep(GIT_SYNC_INTERVAL)
