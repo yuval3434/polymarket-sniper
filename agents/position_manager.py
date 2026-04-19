@@ -112,30 +112,48 @@ class OpenPosition:
         # Locked in at open for R:R calculation — never changes
         self.initial_risk_per_share = self.entry_price - self.trailing_stop_price
 
-    def correct_entry_price(self, actual_price: float) -> None:
-        """Correct entry price to actual fill price and recalculate all derived fields."""
+    def correct_entry_price(
+        self,
+        actual_price: float,
+        actual_shares: float | None = None,
+    ) -> None:
+        """
+        Correct entry price to actual fill price and recalculate all derived fields.
+        Pass actual_shares from on-chain balance when available — do NOT back-calculate
+        from size_usdc because a partial IOC fill means we own fewer shares than intended.
+        """
         old_price  = self.entry_price
         old_shares = self.size_shares
-        self.entry_price            = actual_price
-        self.size_shares            = self.size_usdc / actual_price  # recalculate from actual fill
+
+        self.entry_price = actual_price
+        self.trail_level = 0
+
+        if actual_shares is not None:
+            # On-chain verified — use ground-truth share count
+            self.size_shares = actual_shares
+            self.size_usdc   = round(actual_shares * actual_price, 4)
+        else:
+            # Fallback: back-calculate (assumes full fill at actual_price)
+            self.size_shares = self.size_usdc / actual_price
+
         self.trailing_stop_price    = max(actual_price * INITIAL_STOP_MULT, 0.01)
         self.peak_bid               = actual_price
-        self.trail_level            = 0
         self.initial_risk_per_share = actual_price - self.trailing_stop_price
 
         slippage_pct = ((actual_price - old_price) / old_price) * 100 if old_price > 0 else 0.0
+        fill_note    = f"  Filled USDC : ${self.size_usdc:.2f}\n" if actual_shares is not None else ""
 
         if abs(slippage_pct) >= 5.0:
             logger.warning(
                 "HIGH SLIPPAGE DETECTED — Expected: $%.4f  Actual Fill: $%.4f  "
-                "Slippage: %+.1f%%  |  shares %.4f → %.4f  stop %.4f",
+                "Slippage: %+.1f%%  |  shares %.4f → %.4f  stop $%.4f",
                 old_price, actual_price, slippage_pct,
                 old_shares, self.size_shares, self.trailing_stop_price,
             )
         else:
             logger.info(
-                "Entry corrected: signal=%.4f → actual_fill=%.4f (%.1f%%) | "
-                "shares %.4f → %.4f | stop=%.4f",
+                "Entry corrected: signal=$%.4f → actual_fill=$%.4f (%+.1f%%) | "
+                "shares %.4f → %.4f | stop=$%.4f",
                 old_price, actual_price, slippage_pct,
                 old_shares, self.size_shares, self.trailing_stop_price,
             )
@@ -144,8 +162,9 @@ class OpenPosition:
             f"\n  ── FILL CONFIRMED ──────────────────────────────────────\n"
             f"  Signal price : ${old_price:.4f}  ({old_shares:.4f} shares)\n"
             f"  Actual fill  : ${actual_price:.4f}  ({self.size_shares:.4f} shares)\n"
+            f"{fill_note}"
             f"  Slippage     : {slippage_pct:+.1f}%"
-            + (f"  ⚠ HIGH SLIPPAGE" if abs(slippage_pct) >= 5.0 else "") + "\n"
+            + ("  ⚠ HIGH SLIPPAGE" if abs(slippage_pct) >= 5.0 else "") + "\n"
             f"  New stop     : ${self.trailing_stop_price:.4f}\n"
             f"  ────────────────────────────────────────────────────────\n"
         )

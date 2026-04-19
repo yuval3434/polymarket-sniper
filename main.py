@@ -307,21 +307,32 @@ async def _snipe_and_correct_entry(
     if not result:
         return
 
-    # actual_fill_price is only injected by order_manager for live orders
-    # (paper orders return the signal price, so no correction is applied)
-    confirmed_fill = result.get("actual_fill_price")
+    # actual_fill_price / actual_fill_shares are only injected for live orders.
+    # Paper orders return signal price → no correction needed.
+    confirmed_fill   = result.get("actual_fill_price")
+    confirmed_shares = result.get("actual_fill_shares")   # on-chain balance delta
+
     if confirmed_fill:
-        actual_price = float(confirmed_fill)
+        actual_price  = float(confirmed_fill)
+        actual_shares = float(confirmed_shares) if confirmed_shares is not None else None
     else:
-        actual_price = (
-            float(result.get("price") or 0)
-            or float(result.get("averagePrice") or 0)
-        )
+        actual_price  = float(result.get("price") or 0) or float(result.get("averagePrice") or 0)
+        actual_shares = None
 
     if actual_price > 0:
         pos = orchestrator.position_manager._position
         if pos is not None:
-            pos.correct_entry_price(actual_price)
+            pos.correct_entry_price(actual_price, actual_shares)
+
+    # Tiny fill warning — position is open but notional is far below intended bet
+    if result.get("tiny_fill"):
+        fill_usdc = result.get("actual_fill_usdc", 0)
+        logger.warning(
+            "TINY FILL: position opened with $%.2f instead of $%.2f — "
+            "book was shallower than pre-check indicated. "
+            "Position will be managed normally at corrected entry price.",
+            fill_usdc, bet_usdc,
+        )
 
 
 # ---------------------------------------------------------------------------

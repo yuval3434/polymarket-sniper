@@ -4,6 +4,8 @@ import logging
 import os
 import time
 
+import aiohttp
+
 from config import (
     ETH_PRIVATE_KEY,
     MAX_POSITION_USDC,
@@ -39,6 +41,40 @@ _ZERO_BYTES32         = "0x" + "0" * 64                               # parent_c
 _CLAIM_RETRY_INTERVAL = 120        # seconds between claim attempts
 _CLAIM_GIVE_UP_SECS   = 7200      # stop retrying after 2 hours
 _PENDING_CLAIMS_FILE  = os.path.join(os.path.dirname(os.path.dirname(__file__)), "pending_claims.json")
+
+# ── Execution guardrails ───────────────────────────────────────────────────
+_MAX_SLIPPAGE_CENTS  = 0.03   # IOC limit price = signal_ask + 3¢ — never sweep beyond this
+_MIN_LIQUIDITY_USDC  = 5.0    # reject trade if book depth < $5 within slippage band
+_MIN_FILL_USDC       = 3.0    # warn as tiny fill if IOC settles < $3
+
+
+async def _fetch_ask_depth_usdc(token_id: str, max_price: float) -> tuple[float, float]:
+    """
+    Query Polymarket CLOB /book and return (usdc_available, shares_available)
+    across all ask levels priced <= max_price. Returns (0, 0) on any error.
+    """
+    url = f"{POLY_HOST}/book"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                url, params={"token_id": token_id},
+                timeout=aiohttp.ClientTimeout(total=3),
+            ) as resp:
+                if resp.status != 200:
+                    return 0.0, 0.0
+                data = await resp.json()
+        usdc_sum  = 0.0
+        share_sum = 0.0
+        for level in data.get("asks", []):
+            p = float(level.get("price", 999))
+            s = float(level.get("size", 0))
+            if p <= max_price:
+                usdc_sum  += p * s
+                share_sum += s
+        return usdc_sum, share_sum
+    except Exception as exc:
+        logger.warning("Book depth fetch failed (skipping liquidity check): %s", exc)
+        return 0.0, 0.0
 
 
 def _check_response(result: dict | None, label: str) -> None:
@@ -247,8 +283,35 @@ class OrderManager:
             return {"order_id": "PAPER", "status": "simulated", "price": ask_price, "size": shares}
 
         loop = asyncio.get_event_loop()
-
         fee_bps = 1000   # Polymarket protocol requirement — must be exactly 1000 bps
+
+        # ── Slippage cap ──────────────────────────────────────────────────────
+        max_acceptable_price = round(ask_price + _MAX_SLIPPAGE_CENTS, 4)
+
+        # ── Liquidity pre-check ───────────────────────────────────────────────
+        avail_usdc, avail_shares = await _fetch_ask_depth_usdc(token_id, max_acceptable_price)
+        logger.info(
+            "Liquidity check: signal=$%.4f cap=$%.4f | "
+            "book_depth=$%.2f (%.2f shares) | order=$%.2f",
+            ask_price, max_acceptable_price, avail_usdc, avail_shares, usdc,
+        )
+        if avail_usdc < _MIN_LIQUIDITY_USDC:
+            logger.warning(
+                "LIQUIDITY REJECTED: only $%.2f available within %.0f¢ slippage "
+                "(need >$%.2f) — trade skipped to avoid book-sweep slippage",
+                avail_usdc, _MAX_SLIPPAGE_CENTS * 100, _MIN_LIQUIDITY_USDC,
+            )
+            return None
+
+        # Cap bet to available depth so we don't partial-fill into worse levels
+        if avail_usdc < usdc:
+            logger.warning(
+                "ORDER CAPPED by liquidity: $%.2f → $%.2f "
+                "(%.2f shares within %.0f¢ of ask)",
+                usdc, avail_usdc, avail_shares, _MAX_SLIPPAGE_CENTS * 100,
+            )
+            usdc   = avail_usdc
+            shares = avail_shares   # use book's share count directly
 
         if use_maker:
             maker_price = round(ask_price - 0.001, 4)
@@ -269,18 +332,27 @@ class OrderManager:
                 )
                 logger.info("Maker order status: %s", status_resp)
                 if (status_resp or {}).get("status") not in ("MATCHED", "FILLED"):
-                    logger.info("Maker not filled — cancelling, falling back to market order")
+                    logger.info("Maker not filled — cancelling, falling back to IOC limit")
                     await loop.run_in_executor(None, lambda: self._client.cancel(order_id))
-                    result = await self._place_market_order(token_id, side, usdc, loop, fee_bps)
-                else:
-                    result = status_resp
+                    return await self._place_ioc_limit_order(
+                        token_id, side, usdc, ask_price, max_acceptable_price, loop, fee_bps
+                    )
+                # Maker filled at known price — inject fill data
+                if status_resp:
+                    status_resp["actual_fill_price"]  = maker_price
+                    status_resp["actual_fill_shares"] = shares
+                    status_resp["actual_fill_usdc"]   = maker_price * shares
                 await self.verify_trade(order_id)
-                return result
+                return status_resp
             except Exception as exc:
-                logger.error("Maker order failed: %s — falling back to market order", exc)
-                return await self._place_market_order(token_id, side, usdc, loop, fee_bps)
+                logger.error("Maker order failed: %s — falling back to IOC limit", exc)
+                return await self._place_ioc_limit_order(
+                    token_id, side, usdc, ask_price, max_acceptable_price, loop, fee_bps
+                )
         else:
-            return await self._place_market_order(token_id, side, usdc, loop, fee_bps)
+            return await self._place_ioc_limit_order(
+                token_id, side, usdc, ask_price, max_acceptable_price, loop, fee_bps
+            )
 
     async def sell_with_retry(
         self,
@@ -430,6 +502,126 @@ class OrderManager:
             MAX_RETRIES, token_id, size_shares, bid_price,
         )
         return False, bid_price
+
+    async def _place_ioc_limit_order(
+        self,
+        token_id: str,
+        side: str,
+        amount_usdc: float,
+        signal_price: float,
+        max_price: float,
+        loop,
+        fee_bps: int = 0,
+    ) -> dict | None:
+        """
+        IOC limit order at max_price (signal_ask + MAX_SLIPPAGE).
+        Fills only at prices <= max_price; cancels any unfilled remainder.
+        This prevents book-sweeping that destroys average entry price.
+        """
+        size_shares = round(amount_usdc / signal_price, 4)
+        order_args  = OrderArgs(
+            token_id=token_id,
+            price=max_price,
+            size=size_shares,
+            side=side,
+            fee_rate_bps=fee_bps,
+        )
+        options = PartialCreateOrderOptions()
+        try:
+            # Two-step: create signed limit order, then post as IOC
+            signed_order = await loop.run_in_executor(
+                None, lambda: self._client.create_order(order_args, options)
+            )
+            logger.info(
+                "IOC limit order signed: %.4f shares @ max $%.4f (signal $%.4f)",
+                size_shares, max_price, signal_price,
+            )
+            result = await loop.run_in_executor(
+                None, lambda: self._client.post_order(signed_order, OrderType.IOC)
+            )
+            _check_response(result, "ioc_limit")
+            order_id = (result or {}).get("orderID") or (result or {}).get("id", "") if result else ""
+
+            # ── Verify actual fill via on-chain token balance ─────────────────
+            actual_price:  float | None = None
+            actual_shares: float | None = None
+            fill_usdc:     float        = 0.0
+
+            try:
+                from py_clob_client.clob_types import BalanceAllowanceParams, AssetType
+                resp = await loop.run_in_executor(
+                    None,
+                    lambda: self._client.get_balance_allowance(
+                        params=BalanceAllowanceParams(
+                            asset_type=AssetType.CONDITIONAL, token_id=token_id
+                        )
+                    ),
+                )
+                shares_held = int((resp or {}).get("balance", 0)) / 1e6
+                if shares_held > 0.001:
+                    actual_shares = shares_held
+                    actual_price  = round(amount_usdc / shares_held, 6)
+                    fill_usdc     = actual_price * shares_held
+                    logger.info(
+                        "IOC fill verified: %.4f shares → $%.4f avg = $%.2f USDC",
+                        shares_held, actual_price, fill_usdc,
+                    )
+            except Exception as exc:
+                logger.debug("Balance verification after IOC failed: %s", exc)
+
+            # Fallback: get_order for fill price
+            if not actual_price and order_id:
+                try:
+                    status = await loop.run_in_executor(
+                        None, lambda: self._client.get_order(order_id)
+                    )
+                    actual_price = float(
+                        (status or {}).get("averagePrice") or
+                        (status or {}).get("avgPrice") or
+                        (status or {}).get("price") or 0
+                    ) or None
+                    if actual_price:
+                        logger.info(
+                            "IOC fill price from get_order: $%.4f (status=%s)",
+                            actual_price, (status or {}).get("status"),
+                        )
+                except Exception as exc:
+                    logger.debug("get_order fill price fallback failed: %s", exc)
+
+            if actual_price and signal_price:
+                slip_pct = ((actual_price - signal_price) / signal_price) * 100
+                if abs(slip_pct) >= 5.0:
+                    logger.warning(
+                        "HIGH SLIPPAGE on IOC: signal=$%.4f actual=$%.4f (%+.1f%%)",
+                        signal_price, actual_price, slip_pct,
+                    )
+                else:
+                    logger.info(
+                        "IOC slippage: signal=$%.4f cap=$%.4f actual=$%.4f (%+.1f%%)",
+                        signal_price, max_price, actual_price, slip_pct,
+                    )
+
+            # Tiny fill guard — flag for caller to handle
+            if fill_usdc > 0 and fill_usdc < _MIN_FILL_USDC:
+                logger.warning(
+                    "TINY FILL: IOC settled only $%.2f (%.4f shares @ $%.4f) "
+                    "vs intended $%.2f — order book was shallower than depth check indicated",
+                    fill_usdc, actual_shares or 0, actual_price or 0, amount_usdc,
+                )
+                if result:
+                    result["tiny_fill"] = True
+
+            if result:
+                if actual_price  is not None: result["actual_fill_price"]  = actual_price
+                if actual_shares is not None: result["actual_fill_shares"] = actual_shares
+                result["actual_fill_usdc"] = fill_usdc
+
+            await self.verify_trade(order_id)
+            return result
+
+        except Exception as exc:
+            logger.error("IOC limit order failed: %s", exc)
+            return None
 
     async def _place_market_order(
         self, token_id: str, side: str, amount_usdc: float, loop, fee_bps: int = 0
