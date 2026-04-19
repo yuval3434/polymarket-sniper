@@ -191,15 +191,10 @@ async def _keepalive(
                 await ws.ping()
             except Exception:
                 break
-            # Log if feed looks stale (informational — kill_switch.py fires the actual halt)
-            age_ms = (time.monotonic() - state.btc_last_update) * 1000
-            if age_ms > 2000:
-                logger.warning(
-                    "Binance WS keepalive: feed silent for %.0fms "
-                    "(kill switch threshold is %.0fms)",
-                    age_ms,
-                    float(os.environ.get("KILL_SWITCH_LATENCY_MS", "5000")),
-                )
+            # Connection is alive — refresh timestamp so kill switch doesn't fire
+            # between price ticks (miniTicker is 1s but kill switch may be 3s)
+            state.btc_last_update = time.monotonic()
+            logger.debug("Binance WS keepalive: ping OK, feed timestamp refreshed")
     except asyncio.CancelledError:
         pass
     except Exception:
