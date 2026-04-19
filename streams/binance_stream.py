@@ -69,17 +69,11 @@ async def binance_stream_loop(state: MarketState) -> None:
         if connected:
             backoff = _BACKOFF_INITIAL   # reset on clean run
         else:
-            # WebSocket failed — escalate to REST fallback after repeated failures
+            # WebSocket failed — switch to REST immediately (more reliable on high-latency networks)
             rest_fail_count += 1
-            if rest_fail_count >= 3:
-                logger.warning("WS unavailable — switching to REST fallback")
-                await _rest_poll_loop(state, price_window)
-                rest_fail_count = 0
-                continue
-
-            logger.warning("Binance WS disconnected — retrying in %.0fs", backoff)
-            await asyncio.sleep(backoff)
-            backoff = min(backoff * 2, _BACKOFF_MAX)
+            logger.warning("WS unavailable (attempt %d) — switching to REST fallback", rest_fail_count)
+            await _rest_poll_loop(state, price_window)
+            rest_fail_count = 0
 
 
 async def _try_websocket(state: MarketState, price_window: deque) -> bool:
