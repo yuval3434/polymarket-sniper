@@ -95,7 +95,7 @@ def init_db(path: str = DB_PATH) -> None:
 
 @contextmanager
 def get_conn(path: str = DB_PATH) -> Iterator[sqlite3.Connection]:
-    conn = sqlite3.connect(path, check_same_thread=False)
+    conn = sqlite3.connect(path, check_same_thread=False, timeout=15)
     conn.row_factory = sqlite3.Row
     try:
         yield conn

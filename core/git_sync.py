@@ -75,57 +75,51 @@ def export_trades_to_csv() -> int:
 
 
 # ---------------------------------------------------------------------------
-# Import CSV → DB (dedup by timestamp + market_id + token_side)
+# Import CSV → remote_trades (INSERT OR IGNORE = guaranteed dedup)
 # ---------------------------------------------------------------------------
 
 def import_trades_from_csv() -> int:
-    """Import rows from trades_history.csv that are not already in local DB."""
+    """
+    Import rows from trades_history.csv into the remote_trades table.
+    Uses INSERT OR IGNORE against the UNIQUE index — no Python-side dedup needed.
+    Does NOT touch the main trades table (local executions only).
+    """
     if not os.path.exists(_TRADES_CSV):
         return 0
 
     try:
         with open(_TRADES_CSV, newline="") as f:
-            remote_rows = list(csv.DictReader(f))
+            rows = list(csv.DictReader(f))
     except Exception as exc:
         logger.warning("git_sync: CSV read failed — %s", exc)
         return 0
 
-    if not remote_rows:
+    if not rows:
         return 0
 
     try:
+        from core.remote_sync import _ensure_table, _SCHEMA
         from core.database import get_conn
-        with get_conn() as conn:
-            existing = set(
-                conn.execute(
-                    "SELECT timestamp, market_id, token_side FROM trades"
-                ).fetchall()
-            )
+        _ensure_table()
 
-        new_rows = [
-            r for r in remote_rows
-            if (r.get("timestamp", ""), r.get("market_id", ""), r.get("token_side", ""))
-            not in existing
-        ]
-
-        if not new_rows:
-            return 0
+        synced_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        new_count = 0
+        source_url = "git"
 
         with get_conn() as conn:
-            for r in new_rows:
+            for r in rows:
                 try:
-                    conn.execute(
-                        """INSERT INTO trades
-                           (timestamp,market_id,condition_id,token_side,token_id,
+                    cur = conn.execute(
+                        """INSERT OR IGNORE INTO remote_trades
+                           (source_url,timestamp,market_id,token_side,
                             entry_price,entry_size_usdc,size_shares,exit_price,exit_type,
-                            pnl_usd,pnl_pct,win,strategy_version,dry_run)
-                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            pnl_usd,pnl_pct,win,p_true,z_score,dry_run,synced_at)
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                         (
+                            source_url,
                             r.get("timestamp", ""),
                             r.get("market_id", ""),
-                            r.get("condition_id", ""),
                             r.get("token_side", ""),
-                            r.get("token_id", ""),
                             float(r.get("entry_price") or 0),
                             float(r.get("entry_size_usdc") or 0),
                             float(r.get("size_shares") or 0),
@@ -134,18 +128,23 @@ def import_trades_from_csv() -> int:
                             float(r.get("pnl_usd") or 0),
                             float(r.get("pnl_pct") or 0),
                             int(r.get("win") or 0),
-                            int(r.get("strategy_version") or 1),
+                            0.5,   # p_true not stored in trades table
+                            0.0,   # z_score not stored in trades table
                             int(r.get("dry_run") or 0),
+                            synced_at,
                         ),
                     )
+                    if cur.rowcount > 0:
+                        new_count += 1
                 except Exception:
                     pass
 
-        logger.info("git_sync: imported %d new trades from git into local DB", len(new_rows))
-        return len(new_rows)
+        if new_count:
+            logger.info("git_sync: imported %d new trades from git", new_count)
+        return new_count
 
     except Exception as exc:
-        logger.warning("git_sync: DB import failed — %s", exc)
+        logger.warning("git_sync: import failed — %s", exc)
         return 0
 
 
