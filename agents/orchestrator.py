@@ -45,7 +45,9 @@ from monitor.ping_monitor    import ping_monitor_loop
 
 logger = logging.getLogger(__name__)
 
-_TICK_LOG_INTERVAL = 5   # log a tick to SQLite every N seconds
+_TICK_LOG_INTERVAL  = 5      # log a tick to SQLite every N seconds
+_TICK_PRUNE_KEEP    = 2000   # keep only last N ticks rows
+_PRUNE_INTERVAL     = 3600   # prune DB tables every hour
 
 
 class Orchestrator:
@@ -139,11 +141,14 @@ class Orchestrator:
 
     async def _tick_logger(self) -> None:
         import time
-        last = time.monotonic()
+        last_tick  = time.monotonic()
+        last_prune = time.monotonic()
         while True:
             await asyncio.sleep(1)
-            if time.monotonic() - last >= _TICK_LOG_INTERVAL:
-                last = time.monotonic()
+            now = time.monotonic()
+
+            if now - last_tick >= _TICK_LOG_INTERVAL:
+                last_tick = now
                 if self.state.btc_price > 0:
                     await async_log_tick(
                         market_id=self.state.market_id,
@@ -153,6 +158,32 @@ class Orchestrator:
                         up_bid=self.state.up_best_bid,
                         down_bid=self.state.down_best_bid,
                     )
+
+            if now - last_prune >= _PRUNE_INTERVAL:
+                last_prune = now
+                await asyncio.to_thread(self._prune_db)
+
+    @staticmethod
+    def _prune_db() -> None:
+        """Keep DB small — prune ticks and remote_trades to last N rows."""
+        try:
+            from core.database import get_conn
+            from core.remote_sync import prune_remote_trades
+            with get_conn() as conn:
+                conn.execute(
+                    """DELETE FROM ticks WHERE id NOT IN (
+                           SELECT id FROM ticks ORDER BY id DESC LIMIT ?
+                       )""", (_TICK_PRUNE_KEEP,)
+                )
+                conn.execute(
+                    """DELETE FROM decisions WHERE id NOT IN (
+                           SELECT id FROM decisions ORDER BY id DESC LIMIT 500
+                       )"""
+                )
+            prune_remote_trades(keep=2000)
+            logger.info("DB pruned — ticks/decisions/remote_trades trimmed")
+        except Exception as exc:
+            logger.warning("DB prune failed: %s", exc)
 
     # ------------------------------------------------------------------
     # Called by sniper_loop when a snipe signal fires
