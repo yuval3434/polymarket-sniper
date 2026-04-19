@@ -282,16 +282,15 @@ class PositionManager:
                     pos.trailing_stop_price, bid, pos.entry_price,
                 )
 
-            # ── Hold-to-Expiry override ───────────────────────────────────
-            in_hte_window = (bid > HTE_BID_THRESHOLD and tau < HTE_TAU_THRESHOLD)
-            if in_hte_window and bid > pos.trailing_stop_price:
+            # ── Hold-to-Expiry: always hold while winning, only exit on stop loss ──
+            if bid > pos.trailing_stop_price:
                 logger.debug(
                     "HTE: holding to expiry | bid=%.4f tau=%.0fs stop=%.4f",
                     bid, tau, pos.trailing_stop_price,
                 )
                 continue
 
-            # ── Trailing Stop check ───────────────────────────────────────
+            # ── Trailing Stop check (only fires on losses) ────────────────
             if bid <= pos.trailing_stop_price:
                 exit_label = {
                     0: "STOP_LOSS",
