@@ -112,6 +112,15 @@ class OpenPosition:
         # Locked in at open for R:R calculation — never changes
         self.initial_risk_per_share = self.entry_price - self.trailing_stop_price
 
+    def correct_entry_price(self, actual_price: float) -> None:
+        """Correct entry price to actual fill price and recalculate all derived fields."""
+        old = self.entry_price
+        self.entry_price            = actual_price
+        self.trailing_stop_price    = max(actual_price * INITIAL_STOP_MULT, 0.01)
+        self.peak_bid               = actual_price
+        self.initial_risk_per_share = actual_price - self.trailing_stop_price
+        logger.info("Entry price corrected: signal=%.4f → actual_fill=%.4f (stop now %.4f)", old, actual_price, self.trailing_stop_price)
+
     def age_seconds(self) -> float:
         return time.monotonic() - self.entry_time
 

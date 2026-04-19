@@ -278,13 +278,44 @@ async def sniper_loop(
 
         if not dry_run:
             asyncio.create_task(
-                order_manager.snipe(
-                    token_id=token_id, side="BUY",
-                    ask_price=ask_price, use_maker=use_maker,
-                    state=state, size_usdc=bet_usdc,
-                    p_true=p_true,
+                _snipe_and_correct_entry(
+                    order_manager, orchestrator,
+                    token_id=token_id, ask_price=ask_price,
+                    use_maker=use_maker, state=state,
+                    bet_usdc=bet_usdc, p_true=p_true,
                 )
             )
+
+
+async def _snipe_and_correct_entry(
+    order_manager: OrderManager,
+    orchestrator: Orchestrator,
+    token_id: str,
+    ask_price: float,
+    use_maker: bool,
+    state: MarketState,
+    bet_usdc: float,
+    p_true: float,
+) -> None:
+    """Execute the snipe and correct the position's entry price to the actual fill price."""
+    result = await order_manager.snipe(
+        token_id=token_id, side="BUY",
+        ask_price=ask_price, use_maker=use_maker,
+        state=state, size_usdc=bet_usdc,
+        p_true=p_true,
+    )
+    if not result:
+        return
+    # Extract actual fill price from API response
+    actual_price = (
+        float(result.get("price") or 0)
+        or float(result.get("averagePrice") or 0)
+        or float(result.get("avg_price") or 0)
+    )
+    if actual_price > 0 and abs(actual_price - ask_price) > 0.001:
+        pos = orchestrator.position_manager._position
+        if pos is not None:
+            pos.correct_entry_price(actual_price)
 
 
 # ---------------------------------------------------------------------------
