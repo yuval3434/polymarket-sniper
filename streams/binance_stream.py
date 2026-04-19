@@ -17,8 +17,8 @@ logger = logging.getLogger(__name__)
 # Primary URL from config/.env; fallback tries alternate port
 _WS_URLS = [
     BINANCE_WS_URL,
-    "wss://stream.binance.us:9443/ws/btcusdt@aggTrade",
-    "wss://stream.binance.us:443/ws/btcusdt@aggTrade",
+    "wss://stream.binance.us:9443/ws/btcusdt@miniTicker",
+    "wss://stream.binance.us:443/ws/btcusdt@miniTicker",
 ]
 _REST_URL = "https://api.binance.us/api/v3/ticker/price?symbol=BTCUSDT"
 _REST_POLL_INTERVAL = 0.2
@@ -252,9 +252,13 @@ async def _rest_poll_loop(state: MarketState, price_window: deque) -> None:
 def _handle_agg_trade(raw: str, state: MarketState, price_window: deque) -> None:
     try:
         msg = json.loads(raw)
-        if msg.get("e") != "aggTrade":
+        event = msg.get("e", "")
+        if event == "aggTrade":
+            price = float(msg["p"])
+        elif event == "24hrMiniTicker":
+            price = float(msg["c"])  # close = current price, updates every 1s
+        else:
             return
-        price = float(msg["p"])
         state.btc_price = price
         state.btc_last_update = time.monotonic()
         if state.opening_price == 0.0 and state.up_token_id:
