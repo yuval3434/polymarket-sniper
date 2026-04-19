@@ -60,9 +60,18 @@ async def trade_server_loop() -> None:
 
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", TRADE_SERVER_PORT)
-    await site.start()
-    logger.info("Trade server listening on 0.0.0.0:%d  (GET /trades for peers)", TRADE_SERVER_PORT)
+    try:
+        site = web.TCPSite(runner, "0.0.0.0", TRADE_SERVER_PORT, reuse_address=True)
+        await site.start()
+    except OSError as exc:
+        logger.warning(
+            "Trade server: port %d already in use — another instance is running. "
+            "Sleeping 60s before retry. (%s)", TRADE_SERVER_PORT, exc,
+        )
+        await runner.cleanup()
+        await asyncio.sleep(60)
+        raise  # let _run_agent restart with fresh coroutine
 
+    logger.info("Trade server listening on 0.0.0.0:%d  (GET /trades for peers)", TRADE_SERVER_PORT)
     while True:
         await asyncio.sleep(3600)

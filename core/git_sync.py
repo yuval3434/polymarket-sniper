@@ -170,6 +170,15 @@ def _run_git(args: list[str], timeout: int = 30) -> tuple[bool, str]:
 
 
 def git_pull() -> bool:
+    # Commit any local data changes first so rebase has a clean working tree
+    files_to_add = [f for f in _DATA_FILES if os.path.exists(os.path.join(_BASE, f))]
+    if files_to_add:
+        _run_git(["add"] + files_to_add)
+        ok, _ = _run_git(["diff", "--cached", "--quiet"])
+        if not ok:
+            hostname = os.environ.get("HOSTNAME", "bot")
+            _run_git(["commit", "-m", f"[auto-sync] pre-pull commit from {hostname}"])
+
     ok, out = _run_git(["pull", "--rebase", "origin", "HEAD"])
     if ok:
         logger.info("git_sync: pull OK — %s", out.splitlines()[0] if out else "up to date")
