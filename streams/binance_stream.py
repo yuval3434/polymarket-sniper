@@ -17,10 +17,10 @@ logger = logging.getLogger(__name__)
 # Primary URL from config/.env; fallback tries alternate port
 _WS_URLS = [
     BINANCE_WS_URL,
-    "wss://stream.binance.com:443/ws/btcusdt@aggTrade",
-    "wss://stream.binance.com:9443/ws/btcusdt@aggTrade",
+    "wss://stream.binance.us:9443/ws/btcusdt@aggTrade",
+    "wss://stream.binance.us:443/ws/btcusdt@aggTrade",
 ]
-_REST_URL = "https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT"
+_REST_URL = "https://api.binance.us/api/v3/ticker/price?symbol=BTCUSDT"
 _REST_POLL_INTERVAL = 0.2
 
 _BACKOFF_INITIAL  = 1.0
