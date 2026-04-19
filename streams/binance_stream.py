@@ -28,7 +28,7 @@ _BACKOFF_MAX      = 10.0
 _STABLE_TICKS     = 3       # consecutive good ticks required before re-enabling trading
 _MAX_DEQUE_LEN    = VOL_WINDOW_SECONDS * 15
 _VOL_RECALC_TICKS = 50      # only recompute vol every N ticks — keeps event loop free
-_WS_KEEPALIVE_S   = 3.0     # send explicit PING every 3s (detect silent drops fast)
+_WS_KEEPALIVE_S   = 2.0     # send explicit PING every 2s (detect silent drops fast)
 
 
 def _annualized_vol(prices: deque) -> float:
