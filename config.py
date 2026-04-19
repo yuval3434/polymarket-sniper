@@ -72,7 +72,7 @@ KILL_SWITCH_LATENCY_MS: int = int(os.environ.get("KILL_SWITCH_LATENCY_MS", "5000
 POLY_HOST: str = os.environ.get("POLY_HOST", "https://clob.polymarket.com")
 GAMMA_API_BASE: str = os.environ.get("GAMMA_API_BASE", "https://gamma-api.polymarket.com")
 BINANCE_WS_URL: str = os.environ.get(
-    "BINANCE_WS_URL", "wss://stream.binance.us:9443/ws/btcusdt@miniTicker"
+    "BINANCE_WS_URL", "wss://stream.binance.us:9443/ws/btcusdt@aggTrade"
 )
 POLY_WS_URL: str = os.environ.get(
     "POLY_WS_URL", "wss://ws-subscriptions-clob.polymarket.com/ws/market"
