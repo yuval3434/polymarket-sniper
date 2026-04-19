@@ -75,7 +75,7 @@ BINANCE_WS_URL: str = os.environ.get(
     "BINANCE_WS_URL", "wss://stream.binance.us:9443/ws/btcusdt@miniTicker"
 )
 POLYGON_RPC_URL: str = os.environ.get(
-    "POLYGON_RPC_URL", "https://polygon-rpc.com"
+    "POLYGON_RPC_URL", "https://polygon-bor-rpc.publicnode.com"
 )
 POLY_WS_URL: str = os.environ.get(
     "POLY_WS_URL", "wss://ws-subscriptions-clob.polymarket.com/ws/market"

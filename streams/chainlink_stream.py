@@ -47,9 +47,9 @@ _ABI = [
 # Public Polygon RPC fallbacks (tried in order)
 _RPC_URLS = [
     POLYGON_RPC_URL,
-    "https://polygon-rpc.com",
+    "https://polygon-bor-rpc.publicnode.com",
     "https://rpc.ankr.com/polygon",
-    "https://rpc-mainnet.maticvigil.com",
+    "https://1rpc.io/matic",
 ]
 
 POLL_INTERVAL   = 5.0    # seconds between Chainlink reads
