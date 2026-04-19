@@ -110,7 +110,6 @@ class Orchestrator:
             self._run_agent("OSINTResearcher",  self.osint_researcher.run),
             self._run_agent("Developer",        self.developer.run),
             self._run_agent("LearningAgent",    self.learning_agent.run),
-            self._run_agent("TradeServer",      trade_server_loop),
             self._run_agent("GitSync",          git_sync_loop),
             self._run_agent("PingMonitor",      lambda: ping_monitor_loop(self.state)),
             self._run_agent("LoopLagSensor",    loop_lag_sensor),

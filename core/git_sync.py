@@ -152,7 +152,7 @@ def import_trades_from_csv() -> int:
 # Git operations
 # ---------------------------------------------------------------------------
 
-def _run_git(args: list[str], timeout: int = 30) -> tuple[bool, str]:
+def _run_git(args: list[str], timeout: int = 10) -> tuple[bool, str]:
     """Run a git command in the repo root. Returns (success, output)."""
     try:
         result = subprocess.run(
@@ -189,30 +189,29 @@ def git_pull() -> bool:
 
 def git_push() -> bool:
     """Stage data files, commit if anything changed, then push."""
-    # Stage only the data files (never stage .env, .db, etc.)
     files_to_add = [f for f in _DATA_FILES if os.path.exists(os.path.join(_BASE, f))]
     if not files_to_add:
         return True
 
     _run_git(["add"] + files_to_add)
 
-    ok, out = _run_git(["diff", "--cached", "--quiet"])
+    ok, _ = _run_git(["diff", "--cached", "--quiet"])
     if ok:
         logger.debug("git_sync: nothing changed — skip commit")
         return True
 
-    hostname = os.environ.get("HOSTNAME") or os.uname().nodename if hasattr(os, "uname") else "bot"
+    hostname = os.environ.get("HOSTNAME", "bot")
     msg = f"[auto-sync] learning data from {hostname} — {time.strftime('%Y-%m-%d %H:%M UTC', time.gmtime())}"
     ok, out = _run_git(["commit", "-m", msg])
     if not ok:
         logger.warning("git_sync: commit failed — %s", out)
         return False
 
-    ok, out = _run_git(["push", "origin", "HEAD"], timeout=60)
+    ok, out = _run_git(["push", "origin", "HEAD"], timeout=15)
     if ok:
         logger.info("git_sync: pushed learning data to git")
     else:
-        logger.warning("git_sync: push failed — %s", out)
+        logger.warning("git_sync: push failed (will retry next cycle) — %s", out)
     return ok
 
 
