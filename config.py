@@ -66,7 +66,7 @@ SAFETY_BUFFER: float = float(os.environ.get("SAFETY_BUFFER", "0.03"))
 # --- Strategy parameters ---
 ORACLE_LAG_SECONDS: float = float(os.environ.get("ORACLE_LAG_SECONDS", "2.0"))
 SNIPE_WINDOW_START: int = int(os.environ.get("SNIPE_WINDOW_START", "12"))
-KILL_SWITCH_LATENCY_MS: int = int(os.environ.get("KILL_SWITCH_LATENCY_MS", "60000"))
+KILL_SWITCH_LATENCY_MS: int = int(os.environ.get("KILL_SWITCH_LATENCY_MS", "5000"))
 
 # --- Network endpoints ---
 POLY_HOST: str = os.environ.get("POLY_HOST", "https://clob.polymarket.com")

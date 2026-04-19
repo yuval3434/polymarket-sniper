@@ -18,7 +18,7 @@ class MarketState:
     opening_price: float = 0.0      # BTC price at the start of this 5-min window
     expiry_ts: float = 0.0          # Unix timestamp when market closes
 
-    # Chainlink BTC/USD price feed (Polygon)
+    # Binance price stream
     btc_price: float = 0.0
     # Initialised 15s in the future so the kill switch doesn't fire before streams connect
     btc_last_update: float = field(default_factory=lambda: time.monotonic() + 15)
@@ -33,7 +33,7 @@ class MarketState:
     # Circuit breaker (soft — auto-recoverable)
     kill_switch_active: bool = False
     kill_switch_reason: str = ""
-    kill_switch_source: str = ""   # "chainlink" | "polymarket" — used by stream loops for targeted recovery
+    kill_switch_source: str = ""   # "binance" | "polymarket" — used by stream loops for targeted recovery
 
     # Snipe guard — prevent firing more than once per market window
     snipe_fired: bool = False

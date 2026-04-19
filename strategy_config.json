@@ -7,7 +7,7 @@
     "note": "Early-momentum strategy. Entry window: T-290s to T-90s. No entries in final 90s."
   },
   "probability": {
-    "oracle_lag_seconds": 0.0,
+    "oracle_lag_seconds": 2.0,
     "min_vol_floor": 0.01
   },
   "sniper": {
