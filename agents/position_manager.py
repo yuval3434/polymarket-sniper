@@ -114,12 +114,41 @@ class OpenPosition:
 
     def correct_entry_price(self, actual_price: float) -> None:
         """Correct entry price to actual fill price and recalculate all derived fields."""
-        old = self.entry_price
+        old_price  = self.entry_price
+        old_shares = self.size_shares
         self.entry_price            = actual_price
+        self.size_shares            = self.size_usdc / actual_price  # recalculate from actual fill
         self.trailing_stop_price    = max(actual_price * INITIAL_STOP_MULT, 0.01)
         self.peak_bid               = actual_price
+        self.trail_level            = 0
         self.initial_risk_per_share = actual_price - self.trailing_stop_price
-        logger.info("Entry price corrected: signal=%.4f → actual_fill=%.4f (stop now %.4f)", old, actual_price, self.trailing_stop_price)
+
+        slippage_pct = ((actual_price - old_price) / old_price) * 100 if old_price > 0 else 0.0
+
+        if abs(slippage_pct) >= 5.0:
+            logger.warning(
+                "HIGH SLIPPAGE DETECTED — Expected: $%.4f  Actual Fill: $%.4f  "
+                "Slippage: %+.1f%%  |  shares %.4f → %.4f  stop %.4f",
+                old_price, actual_price, slippage_pct,
+                old_shares, self.size_shares, self.trailing_stop_price,
+            )
+        else:
+            logger.info(
+                "Entry corrected: signal=%.4f → actual_fill=%.4f (%.1f%%) | "
+                "shares %.4f → %.4f | stop=%.4f",
+                old_price, actual_price, slippage_pct,
+                old_shares, self.size_shares, self.trailing_stop_price,
+            )
+
+        print(
+            f"\n  ── FILL CONFIRMED ──────────────────────────────────────\n"
+            f"  Signal price : ${old_price:.4f}  ({old_shares:.4f} shares)\n"
+            f"  Actual fill  : ${actual_price:.4f}  ({self.size_shares:.4f} shares)\n"
+            f"  Slippage     : {slippage_pct:+.1f}%"
+            + (f"  ⚠ HIGH SLIPPAGE" if abs(slippage_pct) >= 5.0 else "") + "\n"
+            f"  New stop     : ${self.trailing_stop_price:.4f}\n"
+            f"  ────────────────────────────────────────────────────────\n"
+        )
 
     def age_seconds(self) -> float:
         return time.monotonic() - self.entry_time
@@ -244,15 +273,17 @@ class PositionManager:
             token_side, market_id, entry_price, size_usdc, p_true, z_score,
             pos.trailing_stop_price, " [DRY RUN]" if is_dry_run else " [LIVE]",
         )
+        pending_note = "  ⏳ Awaiting fill confirmation — entry will update\n" if not is_dry_run else ""
         print(
             f"\n{'═'*62}\n"
             f"  BET PLACED  {arrow} {token_side}  {mode}\n"
             f"  Market  : {market_id}\n"
-            f"  Entry   : ${entry_price:.4f}   Size: ${size_usdc:.2f} USDC"
+            f"  Entry   : ${entry_price:.4f} (signal)   Size: ${size_usdc:.2f} USDC"
             f"  ({size_shares:.4f} shares)\n"
             f"  P(win)  : {p_true:.1%}   Z-score: {z_score:.3f}\n"
             f"  Stop    : ${pos.trailing_stop_price:.4f}  (−50% / Level 0)\n"
             f"  Trail   : +25% → breakeven | +50% → lock +25% floor\n"
+            f"{pending_note}"
             f"{'═'*62}\n"
         )
 

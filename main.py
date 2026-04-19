@@ -306,13 +306,19 @@ async def _snipe_and_correct_entry(
     )
     if not result:
         return
-    # Extract actual fill price — prefer actual_fill_price injected by order_manager
-    actual_price = (
-        float(result.get("actual_fill_price") or 0)
-        or float(result.get("price") or 0)
-        or float(result.get("averagePrice") or 0)
-    )
-    if actual_price > 0 and abs(actual_price - ask_price) > 0.001:
+
+    # actual_fill_price is only injected by order_manager for live orders
+    # (paper orders return the signal price, so no correction is applied)
+    confirmed_fill = result.get("actual_fill_price")
+    if confirmed_fill:
+        actual_price = float(confirmed_fill)
+    else:
+        actual_price = (
+            float(result.get("price") or 0)
+            or float(result.get("averagePrice") or 0)
+        )
+
+    if actual_price > 0:
         pos = orchestrator.position_manager._position
         if pos is not None:
             pos.correct_entry_price(actual_price)

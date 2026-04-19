@@ -446,24 +446,83 @@ class OrderManager:
             signed_order = await loop.run_in_executor(
                 None, lambda: self._client.create_market_order(market_args, options)
             )
-            # Extract actual fill price from signed order (set from live order book)
-            actual_price = None
+            # Pre-execution quote price from signed order (approximate — replaced by fill data below)
+            pre_exec_price = None
             try:
-                actual_price = float(
+                pre_exec_price = float(
                     getattr(signed_order, "price", None)
                     or (signed_order.get("price") if isinstance(signed_order, dict) else None)
                     or 0
                 ) or None
             except Exception:
                 pass
-            logger.info("Signed market order created: %s (actual_price=%s)", signed_order, actual_price)
+            logger.info("Signed market order created (pre-exec quote=%.4f): %s", pre_exec_price or 0, signed_order)
+
             result = await loop.run_in_executor(
                 None, lambda: self._client.post_order(signed_order, OrderType.FOK)
             )
             _check_response(result, "market")
             order_id = result.get("orderID") or result.get("id", "") if result else ""
+
+            # ── Verify actual fill price from exchange ─────────────────────
+            actual_price: float | None = None
+
+            # Priority 1: query order status — most reliable source of fill price
+            if order_id:
+                try:
+                    status = await loop.run_in_executor(None, lambda: self._client.get_order(order_id))
+                    if status:
+                        actual_price = float(
+                            (status.get("averagePrice") or 0)
+                            or (status.get("avgPrice") or 0)
+                            or (status.get("price") or 0)
+                        ) or None
+                        if actual_price:
+                            logger.info(
+                                "Fill price from get_order: $%.4f (order_id=%s status=%s)",
+                                actual_price, order_id, status.get("status"),
+                            )
+                except Exception as exc:
+                    logger.debug("get_order fill price query failed: %s", exc)
+
+            # Priority 2: token balance delta — calculate shares received, back-compute price
+            if not actual_price and amount_usdc > 0:
+                try:
+                    from py_clob_client.clob_types import BalanceAllowanceParams, AssetType
+                    resp = await loop.run_in_executor(
+                        None,
+                        lambda: self._client.get_balance_allowance(
+                            params=BalanceAllowanceParams(
+                                asset_type=AssetType.CONDITIONAL, token_id=token_id
+                            )
+                        ),
+                    )
+                    shares_held = int((resp or {}).get("balance", 0)) / 1e6
+                    if shares_held > 0.01:
+                        actual_price = round(amount_usdc / shares_held, 6)
+                        logger.info(
+                            "Fill price from balance: shares=%.4f → price=%.4f (USDC=%.2f)",
+                            shares_held, actual_price, amount_usdc,
+                        )
+                except Exception as exc:
+                    logger.debug("Balance fill price query failed: %s", exc)
+
+            # Priority 3: fall back to result fields, then pre-execution quote
+            if not actual_price:
+                actual_price = (
+                    float((result or {}).get("price") or 0)
+                    or float((result or {}).get("averagePrice") or 0)
+                    or pre_exec_price
+                ) or None
+
+            if actual_price and pre_exec_price:
+                slippage_pct = ((actual_price - pre_exec_price) / pre_exec_price) * 100
+                logger.info(
+                    "Slippage: pre-exec=%.4f  actual_fill=%.4f  delta=%+.1f%%",
+                    pre_exec_price, actual_price, slippage_pct,
+                )
+
             await self.verify_trade(order_id)
-            # Inject actual price into result so caller can correct position entry
             if result and actual_price:
                 result["actual_fill_price"] = actual_price
             return result
