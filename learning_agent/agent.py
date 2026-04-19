@@ -31,7 +31,8 @@ from learning_agent.developer  import (
     load_candidate_config,
 )
 from learning_agent.researcher import research, BacktestResult
-from learning_agent.reviewer   import analyse, AnalysisReport
+from learning_agent.reviewer        import analyse, AnalysisReport
+from learning_agent.shadow_analyser import analyse_shadow_trades
 from learning_agent.validator  import (
     ValidationState,
     ValidationStatus,
@@ -81,6 +82,13 @@ class LearningAgent:
             self._last_review_ts = now
             report = await asyncio.get_event_loop().run_in_executor(None, analyse)
             self._print_review(report)
+            # Shadow trade analysis — runs alongside the main review
+            suggestions = await asyncio.to_thread(analyse_shadow_trades)
+            if suggestions:
+                logger.warning(
+                    "[SHADOW] %d parameter suggestion(s) from missed trades — see learning_history.json",
+                    len(suggestions),
+                )
 
         # ── 2. Research (only if no validation currently active) ─────
         if (

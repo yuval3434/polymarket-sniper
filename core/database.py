@@ -77,6 +77,26 @@ CREATE TABLE IF NOT EXISTS performance (
     strategy_version INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS shadow_trades (
+    id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp               TEXT    NOT NULL,
+    market_id               TEXT    NOT NULL,
+    condition_id            TEXT,
+    token_side              TEXT    NOT NULL,
+    token_id                TEXT,
+    theoretical_entry_price REAL    NOT NULL,
+    rejection_reason        TEXT    NOT NULL,  -- z_too_low / price_too_high / ev_negative
+    z_score                 REAL    DEFAULT 0,
+    p_true                  REAL    DEFAULT 0.5,
+    ev                      REAL    DEFAULT 0,
+    expiry_ts               REAL,
+    market_winner           TEXT,              -- UP / DOWN, filled on resolution
+    theoretical_pnl         REAL,              -- NULL until resolved
+    resolved                INTEGER DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_shadow_market   ON shadow_trades(market_id);
+CREATE INDEX IF NOT EXISTS idx_shadow_resolved ON shadow_trades(resolved);
 CREATE INDEX IF NOT EXISTS idx_trades_ts     ON trades(timestamp);
 CREATE INDEX IF NOT EXISTS idx_ticks_ts      ON ticks(timestamp);
 CREATE INDEX IF NOT EXISTS idx_decisions_ts  ON decisions(timestamp);
@@ -308,6 +328,110 @@ async def async_log_decision(**kwargs) -> int:
 
 async def async_update_decision_outcome(decision_id: int, outcome: str) -> None:
     await asyncio.to_thread(update_decision_outcome, decision_id, outcome)
+
+
+def log_shadow_trade(
+    market_id: str,
+    condition_id: str,
+    token_side: str,
+    token_id: str,
+    theoretical_entry_price: float,
+    rejection_reason: str,
+    z_score: float,
+    p_true: float,
+    ev: float,
+    expiry_ts: float,
+    path: str = DB_PATH,
+) -> int:
+    ts = datetime.now(tz=timezone.utc).isoformat()
+    with get_conn(path) as conn:
+        cur = conn.execute(
+            """INSERT INTO shadow_trades
+               (timestamp,market_id,condition_id,token_side,token_id,
+                theoretical_entry_price,rejection_reason,z_score,p_true,ev,expiry_ts)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (ts, market_id, condition_id, token_side, token_id,
+             theoretical_entry_price, rejection_reason,
+             z_score, p_true, ev, expiry_ts),
+        )
+        return cur.lastrowid or 0
+
+
+def resolve_shadow_trades_for_market(
+    market_id: str,
+    market_winner: str,   # "UP" or "DOWN"
+    shadow_bet_usdc: float = 5.0,
+    path: str = DB_PATH,
+) -> int:
+    """
+    Mark all unresolved shadow trades for this market with the actual outcome.
+    theoretical_pnl uses $5 USDC position, exit = $1.00 (win) or $0.00 (loss).
+    Returns number of rows updated.
+    """
+    with get_conn(path) as conn:
+        rows = conn.execute(
+            "SELECT id, token_side, theoretical_entry_price FROM shadow_trades "
+            "WHERE market_id=? AND resolved=0",
+            (market_id,),
+        ).fetchall()
+
+        count = 0
+        for row in rows:
+            won = (row["token_side"] == market_winner)
+            entry = row["theoretical_entry_price"]
+            shares = shadow_bet_usdc / entry if entry > 0 else 0
+            pnl = (1.0 - entry) * shares if won else -entry * shares
+            conn.execute(
+                "UPDATE shadow_trades SET market_winner=?, theoretical_pnl=?, resolved=1 WHERE id=?",
+                (market_winner, round(pnl, 4), row["id"]),
+            )
+            count += 1
+    return count
+
+
+def fetch_unresolved_shadow_trades(max_age_hours: float = 2.0, path: str = DB_PATH) -> list[dict]:
+    import time
+    cutoff = time.time() - max_age_hours * 3600
+    with get_conn(path) as conn:
+        rows = conn.execute(
+            "SELECT * FROM shadow_trades WHERE resolved=0 AND expiry_ts < ?",
+            (cutoff,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def fetch_shadow_trade_stats(min_count: int = 5, path: str = DB_PATH) -> list[dict]:
+    """
+    Returns per-rejection-reason stats for the evaluator.
+    Only includes reasons with >= min_count resolved trades.
+    """
+    with get_conn(path) as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                rejection_reason,
+                COUNT(*)                                    AS total,
+                SUM(CASE WHEN theoretical_pnl > 0 THEN 1 ELSE 0 END) AS wins,
+                ROUND(AVG(theoretical_pnl), 4)             AS avg_pnl,
+                ROUND(AVG(z_score), 3)                     AS avg_z,
+                ROUND(AVG(p_true), 3)                      AS avg_p_true
+            FROM shadow_trades
+            WHERE resolved = 1
+            GROUP BY rejection_reason
+            HAVING COUNT(*) >= ?
+            ORDER BY rejection_reason
+            """,
+            (min_count,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+async def async_log_shadow_trade(**kwargs) -> int:
+    return await asyncio.to_thread(log_shadow_trade, **kwargs)
+
+
+async def async_resolve_shadow_trades_for_market(market_id: str, market_winner: str) -> int:
+    return await asyncio.to_thread(resolve_shadow_trades_for_market, market_id, market_winner)
 
 
 def fetch_recent_ticks(market_id: str, n: int = 360, path: str = DB_PATH) -> list[dict]:

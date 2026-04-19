@@ -53,6 +53,7 @@ from core.database import (
     async_log_decision,
     async_log_trade,
     async_update_decision_outcome,
+    async_resolve_shadow_trades_for_market,
 )
 from core.pnl_tracker import PnLTracker, TradeRecord
 from core.risk_manager import RiskManager
@@ -351,6 +352,12 @@ class PositionManager:
         pnl_usd = (exit_price - pos.entry_price) * pos.size_shares
         pnl_pct = ((exit_price / pos.entry_price) - 1.0) * 100
         await self._finalise(pos, exit_price, "EXPIRY", pnl_usd, pnl_pct, win)
+
+        # Resolve shadow trades for this market so the evaluator can learn from them
+        market_winner = pos.token_side if win else ("DOWN" if pos.token_side == "UP" else "UP")
+        n = await async_resolve_shadow_trades_for_market(pos.market_id, market_winner)
+        if n:
+            logger.info("[SHADOW] Resolved %d shadow trade(s) for market %s — winner=%s", n, pos.market_id, market_winner)
 
         # Queue claim — retried every 2min until oracle resolves (can take 5-30min)
         if win and not pos.is_dry_run and self.order_manager is not None:

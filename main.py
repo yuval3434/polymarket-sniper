@@ -42,6 +42,7 @@ from execution.order_manager import OrderManager
 from market.discovery import discovery_loop
 from market.state import MarketState
 from monitor.kill_switch import kill_switch_loop
+from core.database import async_log_shadow_trade
 from simulation.paper_trader import log_decision, resolve_pending_trades
 from streams.binance_stream import binance_stream_loop
 from streams.polymarket_stream import polymarket_stream_loop
@@ -173,11 +174,28 @@ async def sniper_loop(
             _last_status = now
 
         if Z < required_z:
+            if Z > 0.05:  # has some signal — worth tracking as missed opportunity
+                asyncio.create_task(async_log_shadow_trade(
+                    market_id=state.market_id,
+                    condition_id=state.condition_id,
+                    token_side=token_side,
+                    token_id=token_id,
+                    theoretical_entry_price=ask_price,
+                    rejection_reason="z_too_low",
+                    z_score=Z,
+                    p_true=p_true,
+                    ev=0.0,
+                    expiry_ts=state.expiry_ts,
+                ))
+                logger.debug(
+                    "[SHADOW] Skipped %s ask=%.4f Z=%.3f<%.2f (z_too_low) — tracking as missed opportunity",
+                    token_side, ask_price, Z, required_z,
+                )
             continue
 
         max_entry = _scfg.max_ask_price()
         if ask_price > max_entry:
-            reject_key = (state.market_id, round(ask_price, 4))
+            reject_key = (state.market_id, token_side)
             if reject_key != _last_price_reject_key:
                 print(
                     f"\n  Trade Rejected: Price ${ask_price:.4f} exceeds"
@@ -185,6 +203,22 @@ async def sniper_loop(
                     f" | T-{tau:.0f}s  side={token_side}  Z={Z:.3f}"
                 )
                 _last_price_reject_key = reject_key
+                asyncio.create_task(async_log_shadow_trade(
+                    market_id=state.market_id,
+                    condition_id=state.condition_id,
+                    token_side=token_side,
+                    token_id=token_id,
+                    theoretical_entry_price=ask_price,
+                    rejection_reason="price_too_high",
+                    z_score=Z,
+                    p_true=p_true,
+                    ev=0.0,
+                    expiry_ts=state.expiry_ts,
+                ))
+                logger.info(
+                    "[SHADOW] Skipped %s ask=%.4f>%.2f Z=%.3f (price_too_high) — tracking as missed opportunity",
+                    token_side, ask_price, max_entry, Z,
+                )
             continue
 
         should_execute, use_maker = passes_fee_filter(p_true, ask_price, best_bid, best_ask)
@@ -209,6 +243,22 @@ async def sniper_loop(
                 f" ({_scfg.safety_buffer():.2f})"
                 f" | T-{tau:.0f}s  side={token_side}"
                 f"  ask=${ask_price:.4f}  P={p_true:.3f}"
+            )
+            asyncio.create_task(async_log_shadow_trade(
+                market_id=state.market_id,
+                condition_id=state.condition_id,
+                token_side=token_side,
+                token_id=token_id,
+                theoretical_entry_price=ask_price,
+                rejection_reason="ev_negative",
+                z_score=Z,
+                p_true=p_true,
+                ev=ev,
+                expiry_ts=state.expiry_ts,
+            ))
+            logger.info(
+                "[SHADOW] Skipped %s ask=%.4f EV=%.4f (ev_negative) Z=%.3f — tracking as missed opportunity",
+                token_side, ask_price, ev, Z,
             )
             continue
 
