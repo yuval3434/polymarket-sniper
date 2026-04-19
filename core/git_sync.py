@@ -219,6 +219,21 @@ def git_push() -> bool:
 # Main async loop
 # ---------------------------------------------------------------------------
 
+async def push_trade_now() -> None:
+    """
+    Immediately export trades to CSV and push to git.
+    Called after every closed trade so data is never more than one trade behind.
+    Skips pull to avoid blocking the event loop — the periodic git_sync_loop handles merges.
+    """
+    try:
+        await asyncio.to_thread(export_trades_to_csv)
+        await asyncio.to_thread(git_push)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        logger.warning("git_sync: immediate push failed — %s", exc)
+
+
 async def git_sync_loop() -> None:
     """Runs every GIT_SYNC_INTERVAL seconds. Exports, pulls, imports, pushes."""
     logger.info("git_sync: loop started (interval=%ds) — first sync in 30s", GIT_SYNC_INTERVAL)

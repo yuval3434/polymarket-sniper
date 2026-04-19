@@ -54,6 +54,7 @@ from core.database import (
     async_log_trade,
     async_update_decision_outcome,
 )
+from core.git_sync import push_trade_now
 from core.pnl_tracker import PnLTracker, TradeRecord
 from core.risk_manager import RiskManager
 from core.tracker import TradeEntry, record_trade as _tracker_record
@@ -404,6 +405,8 @@ class PositionManager:
             strategy_version=self.strategy_version,
             dry_run=pos.is_dry_run,
         )
+
+        asyncio.create_task(push_trade_now())
 
         if pos.decision_id:
             await async_update_decision_outcome(
