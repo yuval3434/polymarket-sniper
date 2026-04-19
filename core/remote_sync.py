@@ -119,29 +119,15 @@ def _merge(source_url: str, trades: list[dict]) -> int:
     return new_count
 
 
-def fetch_remote_trades_cached(limit: int = 2000) -> list[dict]:
-    """Return most recent remote trades from cache. Capped to avoid OOM on large tables."""
+def fetch_remote_trades_cached() -> list[dict]:
+    """Return all previously synced remote trades from the local cache table."""
     try:
         _ensure_table()
         with get_conn() as conn:
             rows = conn.execute(
-                "SELECT * FROM remote_trades ORDER BY timestamp DESC LIMIT ?", (limit,)
+                "SELECT * FROM remote_trades ORDER BY timestamp ASC"
             ).fetchall()
         return [dict(r) for r in rows]
     except Exception as exc:
         logger.warning("Could not read remote_trades table: %s", exc)
         return []
-
-
-def prune_remote_trades(keep: int = 2000) -> None:
-    """Delete old rows keeping only the most recent `keep` entries."""
-    try:
-        _ensure_table()
-        with get_conn() as conn:
-            conn.execute(
-                """DELETE FROM remote_trades WHERE id NOT IN (
-                       SELECT id FROM remote_trades ORDER BY timestamp DESC LIMIT ?
-                   )""", (keep,)
-            )
-    except Exception as exc:
-        logger.warning("remote_trades prune failed: %s", exc)
