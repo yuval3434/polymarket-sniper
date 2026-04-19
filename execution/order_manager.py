@@ -42,10 +42,18 @@ _CLAIM_RETRY_INTERVAL = 120        # seconds between claim attempts
 _CLAIM_GIVE_UP_SECS   = 7200      # stop retrying after 2 hours
 _PENDING_CLAIMS_FILE  = os.path.join(os.path.dirname(os.path.dirname(__file__)), "pending_claims.json")
 
-# ── Execution guardrails ───────────────────────────────────────────────────
+# ── Entry execution guardrails ─────────────────────────────────────────────
 _MAX_SLIPPAGE_CENTS  = 0.03   # IOC limit price = signal_ask + 3¢ — never sweep beyond this
 _MIN_LIQUIDITY_USDC  = 5.0    # reject trade if book depth < $5 within slippage band
 _MIN_FILL_USDC       = 3.0    # warn as tiny fill if IOC settles < $3
+
+# ── Exit execution guardrails (per exit type) ──────────────────────────────
+_EXIT_SLIPPAGE_STOP   = 0.05  # STOP_LOSS: accept up to 5¢ below bid (speed > price)
+_EXIT_SLIPPAGE_TRAIL  = 0.03  # TRAIL_BREAKEVEN: balanced — 3¢ below bid
+_EXIT_SLIPPAGE_PROFIT = 0.02  # TRAIL_PROFIT_FLOOR: price quality — 2¢ below bid
+_MAKER_TRY_SECONDS    = 2.0   # wait for passive maker sell before falling back to IOC
+_CHUNK_WAIT_SECONDS   = 3.0   # pause between partial exit chunks (book replenishment)
+_CHUNK_THIN_RATIO     = 0.80  # chunk if available bid depth < 80% of position size
 
 
 async def _fetch_ask_depth_usdc(token_id: str, max_price: float) -> tuple[float, float]:
@@ -74,6 +82,35 @@ async def _fetch_ask_depth_usdc(token_id: str, max_price: float) -> tuple[float,
         return usdc_sum, share_sum
     except Exception as exc:
         logger.warning("Book depth fetch failed (skipping liquidity check): %s", exc)
+        return 0.0, 0.0
+
+
+async def _fetch_bid_depth_shares(token_id: str, min_price: float) -> tuple[float, float]:
+    """
+    Query Polymarket CLOB /book and return (shares_available, usdc_available)
+    across all bid levels priced >= min_price. Returns (0, 0) on any error.
+    """
+    url = f"{POLY_HOST}/book"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                url, params={"token_id": token_id},
+                timeout=aiohttp.ClientTimeout(total=3),
+            ) as resp:
+                if resp.status != 200:
+                    return 0.0, 0.0
+                data = await resp.json()
+        share_sum = 0.0
+        usdc_sum  = 0.0
+        for level in data.get("bids", []):
+            p = float(level.get("price", 0))
+            s = float(level.get("size", 0))
+            if p >= min_price:
+                share_sum += s
+                usdc_sum  += p * s
+        return share_sum, usdc_sum
+    except Exception as exc:
+        logger.warning("Bid depth fetch failed (proceeding without liquidity check): %s", exc)
         return 0.0, 0.0
 
 
@@ -353,6 +390,292 @@ class OrderManager:
             return await self._place_ioc_limit_order(
                 token_id, side, usdc, ask_price, max_acceptable_price, loop, fee_bps
             )
+
+    # ------------------------------------------------------------------
+    # Smart exit — replaces sell_with_retry for live positions
+    # ------------------------------------------------------------------
+
+    async def smart_exit(
+        self,
+        token_id: str,
+        size_shares: float,
+        bid_price: float,
+        exit_type: str,
+    ) -> tuple[bool, float]:
+        """
+        Liquidity-aware exit with per-type slippage tolerance.
+
+        Exit type routing:
+          STOP_LOSS          → 5¢ floor, IOC immediately, no chunking (speed)
+          TRAIL_BREAKEVEN    → 3¢ floor, IOC, chunked if book thin
+          TRAIL_PROFIT_FLOOR → 2¢ floor, passive maker attempt first, chunked
+
+        Returns (success, avg_exit_price).
+        """
+        if self.dry_run or self._client is None:
+            logger.info(
+                "[PAPER] smart_exit [%s]: token=%s shares=%.4f bid=%.4f",
+                exit_type, token_id[:16], size_shares, bid_price,
+            )
+            return True, bid_price
+
+        loop = asyncio.get_event_loop()
+
+        # ── Routing by exit type ─────────────────────────────────────────
+        if exit_type == "STOP_LOSS":
+            max_slippage  = _EXIT_SLIPPAGE_STOP
+            maker_first   = False
+            allow_chunks  = False   # speed critical — don't wait for replenishment
+        elif exit_type == "TRAIL_PROFIT_FLOOR":
+            max_slippage  = _EXIT_SLIPPAGE_PROFIT
+            maker_first   = True    # try passive limit at bid first
+            allow_chunks  = True
+        else:  # TRAIL_BREAKEVEN and any other
+            max_slippage  = _EXIT_SLIPPAGE_TRAIL
+            maker_first   = False
+            allow_chunks  = True
+
+        floor_price = max(0.01, round(bid_price - max_slippage, 4))
+
+        # ── Verify actual on-chain balance ───────────────────────────────
+        balance = await self._get_token_balance(token_id, loop)
+        logger.info(
+            "EXIT [%s]: on-chain balance=%.4f (theoretical=%.4f) | "
+            "bid=%.4f floor=%.4f",
+            exit_type, balance, size_shares, bid_price, floor_price,
+        )
+        if balance < 0.001:
+            logger.info("Position already closed on-chain — no sell needed")
+            return True, bid_price
+        size_shares = balance  # always exit what we actually hold
+
+        # ── Bid depth pre-check ──────────────────────────────────────────
+        avail_shares, avail_usdc = await _fetch_bid_depth_shares(token_id, floor_price)
+        logger.info(
+            "Bid depth: %.4f shares ($%.2f) available at bids >= $%.4f | need %.4f shares",
+            avail_shares, avail_usdc, floor_price, size_shares,
+        )
+
+        # ── Maker-first for profitable exits ─────────────────────────────
+        if maker_first:
+            filled, fill_price, leftover_order_id = await self._try_passive_sell(
+                token_id, size_shares, bid_price, loop
+            )
+            if filled:
+                logger.info(
+                    "EXIT [%s] via passive maker: %.4f shares @ $%.4f",
+                    exit_type, size_shares, fill_price,
+                )
+                return True, fill_price
+            # Cancel unfilled maker order before going IOC
+            if leftover_order_id:
+                try:
+                    await loop.run_in_executor(
+                        None, lambda: self._client.cancel(leftover_order_id)
+                    )
+                    logger.info("Cancelled unfilled passive sell %s → switching to IOC", leftover_order_id)
+                except Exception as exc:
+                    logger.warning("Could not cancel passive order %s: %s", leftover_order_id, exc)
+
+        # ── IOC exit — chunked if book is thin ───────────────────────────
+        if allow_chunks and avail_shares < size_shares * _CHUNK_THIN_RATIO:
+            return await self._chunked_ioc_exit(
+                token_id, size_shares, bid_price, floor_price, avail_shares, exit_type, loop
+            )
+        else:
+            ok, price, _ = await self._ioc_sell(token_id, size_shares, floor_price, loop)
+            if ok:
+                return True, price
+            # IOC got zero fill — widen by 2× and retry once
+            wider_floor = max(0.01, round(floor_price - max_slippage, 4))
+            logger.warning(
+                "IOC sell zero fill at $%.4f — retrying with wider floor $%.4f",
+                floor_price, wider_floor,
+            )
+            ok2, price2, _ = await self._ioc_sell(token_id, size_shares, wider_floor, loop)
+            return ok2, price2 if ok2 else bid_price
+
+    async def _chunked_ioc_exit(
+        self,
+        token_id: str,
+        size_shares: float,
+        bid_price: float,
+        floor_price: float,
+        avail_shares: float,
+        exit_type: str,
+        loop,
+    ) -> tuple[bool, float]:
+        """
+        Exit in two chunks when available bid depth < position size.
+        Sells what the book can absorb now, waits for replenishment, sells rest.
+        """
+        chunk1 = min(avail_shares, size_shares)
+        chunk2 = size_shares - chunk1
+
+        logger.info(
+            "CHUNKED EXIT [%s]: chunk1=%.4f chunk2=%.4f (book thin at $%.4f)",
+            exit_type, chunk1, chunk2, floor_price,
+        )
+
+        total_sold    = 0.0
+        weighted_usdc = 0.0
+
+        if chunk1 > 0.001:
+            ok1, price1, sold1 = await self._ioc_sell(token_id, chunk1, floor_price, loop)
+            if ok1 and sold1 > 0.001:
+                total_sold    += sold1
+                weighted_usdc += price1 * sold1
+
+        if chunk2 > 0.001:
+            logger.info(
+                "Chunk 1 done (%.4f shares) — waiting %.1fs for book to replenish",
+                total_sold, _CHUNK_WAIT_SECONDS,
+            )
+            await asyncio.sleep(_CHUNK_WAIT_SECONDS)
+
+            # Re-query live bid after wait
+            avail2, _ = await _fetch_bid_depth_shares(token_id, floor_price)
+            remaining = await self._get_token_balance(token_id, loop)  # actual remaining
+            if remaining > 0.001:
+                ok2, price2, sold2 = await self._ioc_sell(token_id, remaining, floor_price, loop)
+                if ok2 and sold2 > 0.001:
+                    total_sold    += sold2
+                    weighted_usdc += price2 * sold2
+
+        if total_sold > 0.001:
+            avg_price = weighted_usdc / total_sold
+            logger.info(
+                "CHUNKED EXIT complete: %.4f shares @ avg $%.4f ($%.2f total)",
+                total_sold, avg_price, weighted_usdc,
+            )
+            return True, avg_price
+
+        logger.critical(
+            "CHUNKED EXIT failed: 0 shares sold | token=%s bid=%.4f floor=%.4f",
+            token_id[:16], bid_price, floor_price,
+        )
+        return False, bid_price
+
+    async def _ioc_sell(
+        self,
+        token_id: str,
+        shares_to_sell: float,
+        floor_price: float,
+        loop,
+    ) -> tuple[bool, float, float]:
+        """
+        Post an IOC limit sell at floor_price.
+        Fills at any bid >= floor_price; cancels remainder immediately.
+        Returns (success, exit_price, shares_sold).
+        """
+        order_args = OrderArgs(
+            token_id=token_id,
+            price=floor_price,
+            size=round(shares_to_sell, 6),
+            side="SELL",
+        )
+        options = PartialCreateOrderOptions()
+        try:
+            balance_before = await self._get_token_balance(token_id, loop)
+            signed = await loop.run_in_executor(
+                None, lambda: self._client.create_order(order_args, options)
+            )
+            result = await loop.run_in_executor(
+                None, lambda: self._client.post_order(signed, OrderType.IOC)
+            )
+            _check_response(result, f"ioc_sell@{floor_price:.4f}")
+            await asyncio.sleep(0.3)   # brief settlement pause
+
+            balance_after = await self._get_token_balance(token_id, loop)
+            shares_sold   = max(0.0, balance_before - balance_after)
+
+            if shares_sold > 0.001:
+                logger.info(
+                    "IOC sell confirmed: %.4f shares @ $%.4f (balance %.4f → %.4f)",
+                    shares_sold, floor_price, balance_before, balance_after,
+                )
+                return True, floor_price, shares_sold
+
+            logger.warning(
+                "IOC sell: no fill (balance %.4f → %.4f) | floor=%.4f",
+                balance_before, balance_after, floor_price,
+            )
+            return False, 0.0, 0.0
+
+        except Exception as exc:
+            logger.error("IOC sell failed: %s", exc)
+            return False, 0.0, 0.0
+
+    async def _try_passive_sell(
+        self,
+        token_id: str,
+        size_shares: float,
+        bid_price: float,
+        loop,
+    ) -> tuple[bool, float, str]:
+        """
+        Post a GTC limit sell AT bid_price (passive maker).
+        Waits _MAKER_TRY_SECONDS. Returns (filled, fill_price, order_id_if_unfilled).
+        Caller must cancel order_id if not filled.
+        """
+        order_args = OrderArgs(
+            token_id=token_id,
+            price=bid_price,
+            size=round(size_shares, 6),
+            side="SELL",
+        )
+        order_id = ""
+        try:
+            balance_before = await self._get_token_balance(token_id, loop)
+            result = await loop.run_in_executor(
+                None,
+                lambda: self._client.create_and_post_order(
+                    order_args, PartialCreateOrderOptions()
+                ),
+            )
+            _check_response(result, "passive_sell")
+            order_id = (result or {}).get("orderID") or (result or {}).get("id", "")
+            logger.info(
+                "Passive sell posted: %.4f shares @ $%.4f | order=%s | waiting %.1fs",
+                size_shares, bid_price, order_id, _MAKER_TRY_SECONDS,
+            )
+        except Exception as exc:
+            logger.warning("Passive sell order failed: %s", exc)
+            return False, 0.0, ""
+
+        await asyncio.sleep(_MAKER_TRY_SECONDS)
+
+        balance_after = await self._get_token_balance(token_id, loop)
+        shares_sold   = max(0.0, balance_before - balance_after)
+
+        if shares_sold > 0.001:
+            logger.info(
+                "Passive sell filled: %.4f shares @ $%.4f", shares_sold, bid_price
+            )
+            return True, bid_price, ""   # filled — no pending order to cancel
+
+        logger.info(
+            "Passive sell unfilled after %.1fs — caller will cancel and switch to IOC",
+            _MAKER_TRY_SECONDS,
+        )
+        return False, 0.0, order_id   # caller must cancel this
+
+    async def _get_token_balance(self, token_id: str, loop) -> float:
+        """Return on-chain conditional token balance in shares (handles 1e6 decimals)."""
+        try:
+            from py_clob_client.clob_types import BalanceAllowanceParams, AssetType
+            resp = await loop.run_in_executor(
+                None,
+                lambda: self._client.get_balance_allowance(
+                    params=BalanceAllowanceParams(
+                        asset_type=AssetType.CONDITIONAL, token_id=token_id
+                    )
+                ),
+            )
+            return int((resp or {}).get("balance", 0)) / 1e6
+        except Exception as exc:
+            logger.warning("Token balance query failed: %s", exc)
+            return 0.0
 
     async def sell_with_retry(
         self,

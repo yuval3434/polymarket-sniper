@@ -380,13 +380,14 @@ class PositionManager:
 
         if not pos.is_dry_run and self.order_manager is not None:
             logger.info(
-                "Initiating smart-retry SELL [%s]: token=%s shares=%.4f bid=%.4f",
+                "Initiating smart exit [%s]: token=%s shares=%.4f bid=%.4f",
                 exit_type, pos.token_id, pos.size_shares, exit_bid,
             )
-            success, actual_exit_price = await self.order_manager.sell_with_retry(
+            success, actual_exit_price = await self.order_manager.smart_exit(
                 token_id=pos.token_id,
                 size_shares=pos.size_shares,
                 bid_price=exit_bid,
+                exit_type=exit_type,
             )
 
             if not success:
