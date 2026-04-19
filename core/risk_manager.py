@@ -20,7 +20,7 @@ _MAX_BET_USDC           = float(os.environ.get("MAX_BET_USDC", "25.0"))
 _DEFAULT_BET_USDC       = float(os.environ.get("MAX_POSITION_USDC", "10.0"))
 
 # Hard-coded live-mode guardrails — never changed by config or Kelly
-LIVE_MIN_BET_USDC: float = 10.0
+LIVE_MIN_BET_USDC: float = 15.0
 LIVE_MAX_BET_USDC: float = 15.0
 
 
