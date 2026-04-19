@@ -36,14 +36,14 @@ async def kill_switch_loop(
             continue  # already paused — stream loop will clear it when ready
 
         now = time.monotonic()
-        binance_age_ms = (now - state.btc_last_update) * 1000
+        binance_age_ms = (now - state.btc_last_update) * 1000   # chainlink feed age
         poly_age_ms    = (now - state.poly_last_update) * 1000
 
         if binance_age_ms > KILL_SWITCH_LATENCY_MS:
             await _trigger(
                 state, cancel_all_fn,
-                source="binance",
-                reason=f"Binance feed stale for {binance_age_ms:.0f}ms",
+                source="chainlink",
+                reason=f"Chainlink feed stale for {binance_age_ms:.0f}ms",
             )
         elif poly_age_ms > KILL_SWITCH_LATENCY_MS:
             await _trigger(

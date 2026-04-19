@@ -66,13 +66,16 @@ SAFETY_BUFFER: float = float(os.environ.get("SAFETY_BUFFER", "0.03"))
 # --- Strategy parameters ---
 ORACLE_LAG_SECONDS: float = float(os.environ.get("ORACLE_LAG_SECONDS", "2.0"))
 SNIPE_WINDOW_START: int = int(os.environ.get("SNIPE_WINDOW_START", "12"))
-KILL_SWITCH_LATENCY_MS: int = int(os.environ.get("KILL_SWITCH_LATENCY_MS", "5000"))
+KILL_SWITCH_LATENCY_MS: int = int(os.environ.get("KILL_SWITCH_LATENCY_MS", "60000"))
 
 # --- Network endpoints ---
 POLY_HOST: str = os.environ.get("POLY_HOST", "https://clob.polymarket.com")
 GAMMA_API_BASE: str = os.environ.get("GAMMA_API_BASE", "https://gamma-api.polymarket.com")
 BINANCE_WS_URL: str = os.environ.get(
     "BINANCE_WS_URL", "wss://stream.binance.us:9443/ws/btcusdt@miniTicker"
+)
+POLYGON_RPC_URL: str = os.environ.get(
+    "POLYGON_RPC_URL", "https://polygon-rpc.com"
 )
 POLY_WS_URL: str = os.environ.get(
     "POLY_WS_URL", "wss://ws-subscriptions-clob.polymarket.com/ws/market"

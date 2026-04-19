@@ -43,7 +43,7 @@ from market.discovery import discovery_loop
 from market.state import MarketState
 from monitor.kill_switch import kill_switch_loop
 from simulation.paper_trader import log_decision, resolve_pending_trades
-from streams.binance_stream import binance_stream_loop
+from streams.chainlink_stream import chainlink_stream_loop
 from streams.polymarket_stream import polymarket_stream_loop
 from agents.orchestrator import Orchestrator
 
@@ -256,7 +256,7 @@ async def main(dry_run: bool) -> None:
 
     await orchestrator.run_all(
         discovery_coro   = discovery_loop(state),
-        binance_coro     = binance_stream_loop(state),
+        binance_coro     = chainlink_stream_loop(state),
         polymarket_coro  = polymarket_stream_loop(state),
         sniper_coro      = sniper_loop(state, order_manager, orchestrator, dry_run),
         kill_switch_coro = kill_switch_loop(
