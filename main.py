@@ -284,8 +284,6 @@ async def sniper_loop(
             # Rejected by live guardrail (already logged by risk manager)
             continue
 
-        state.snipe_fired = True
-
         mode_tag = "[PAPER]" if dry_run else "[LIVE]"
         logger.info(
             "SNIPE %s [%s T-%.1fs]: side=%s ask=%.4f P=%.3f Z=%.3f"
