@@ -321,6 +321,9 @@ async def _snipe_and_correct_entry(
         p_true=p_true,
     )
     if not result:
+        import logging
+        logging.getLogger(__name__).warning("Snipe API call failed. Clearing ghost position to unblock bot.")
+        orchestrator.position_manager._position = None
         return
 
     # actual_fill_price / actual_fill_shares are only injected for live orders.
