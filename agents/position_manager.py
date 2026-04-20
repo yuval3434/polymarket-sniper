@@ -373,19 +373,22 @@ class PositionManager:
                 continue
 
             # ── Trailing Stop check ───────────────────────────────────────
+          # ── Trailing Stop check with 3s Confirmation ──────────────────
             if bid <= pos.trailing_stop_price:
-                exit_label = {
-                    0: "STOP_LOSS",
-                    1: "TRAIL_CONTINUOUS",
-                    2: "TRAIL_LOCKED",
-                }.get(pos.trail_level, "TRAILING_STOP")
-                logger.info(
-                    "%s: bid=%.4f <= stop=%.4f | level=%d | entry=%.4f",
-                    exit_label, bid, pos.trailing_stop_price,
-                    pos.trail_level, pos.entry_price,
-                )
-                await self._close_early(pos, bid, exit_label, state)
-                continue
+                if not hasattr(pos, 'stop_breach_time') or pos.stop_breach_time is None:
+                    pos.stop_breach_time = time.monotonic()
+                    logger.info("STOP BREACHED: Bid $%.4f <= Stop $%.4f. Waiting 3s...", bid, pos.trailing_stop_price)
+                
+                if time.monotonic() - pos.stop_breach_time >= 3.0:
+                    exit_label = {0: "STOP_LOSS", 1: "TRAIL_CONTINUOUS", 2: "TRAIL_LOCKED"}.get(pos.trail_level, "TRAILING_STOP")
+                    logger.warning("STOP CONFIRMED: Price stayed low for 3s. Exiting.")
+                    await self._close_early(pos, bid, exit_label, state)
+                    pos.stop_breach_time = None
+                    continue
+            else:
+                if hasattr(pos, 'stop_breach_time') and pos.stop_breach_time is not None:
+                    logger.info("STOP RECOVERED: Price back above $%.4f. Resetting timer.", pos.trailing_stop_price)
+                    pos.stop_breach_time = None
 
     # ------------------------------------------------------------------
     # Close helpers
