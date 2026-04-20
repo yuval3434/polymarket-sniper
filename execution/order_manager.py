@@ -350,6 +350,59 @@ class OrderManager:
         except Exception as exc:
             logger.warning("Could not save pending_claims.json: %s", exc)
 
+    @staticmethod
+    def _safe_order_amounts(amount_usdc: float, limit_price: float) -> tuple[float, float]:
+        """
+        Returns (size_shares, actual_usdc) satisfying Polymarket's hard precision rules:
+
+          takerAmount (6-decimal int) = round(shares × 1e6)  →  must be divisible by 100
+                                                                  (= shares have ≤ 4 dp)
+          makerAmount (6-decimal int) = round(price × takerAmount) → must be divisible by 10000
+                                                                      (= USDC has ≤ 2 dp)
+
+        Simple rounding fails because the SDK recomputes makerAmount from price × size
+        internally in float — we cannot control that product directly.  Instead we use
+        integer GCD arithmetic to find the LARGEST share count, expressed in 0.0001-tick
+        units, that makes price × shares an exact multiple of 0.01.
+
+        Returns (0.0, 0.0) if no valid quantity fits within budget.
+        """
+        from math import gcd as _gcd
+        # Work entirely in integer ticks to avoid IEEE-754 drift.
+        # price_4dp : price in 0.0001 units  (e.g. 6160 for $0.6160)
+        # share_unit: shares in 0.0001 units (e.g. 206250 → 20.6250 shares)
+        price_4dp   = round(limit_price * 10_000)
+        budget_cent = round(amount_usdc * 100)          # USDC budget in integer cents
+
+        if price_4dp <= 0 or budget_cent <= 0:
+            return 0.0, 0.0
+
+        # ── Find minimum valid share granularity ──────────────────────────────
+        # makerAmount_6dp = (price_4dp / 10_000) × (share_units × 100)
+        #                 = price_4dp × share_units / 100
+        # For divisibility by 10_000:
+        #   price_4dp × share_units % 1_000_000 == 0
+        #   → share_units must be a multiple of  1_000_000 // gcd(price_4dp, 1_000_000)
+        g          = _gcd(price_4dp, 1_000_000)
+        share_step = 1_000_000 // g             # e.g. 10000 for price=0.63 → whole shares only
+
+        # ── Max share_units that fits within USDC budget ──────────────────────
+        # shares = budget_usdc / price
+        # share_units = shares × 10_000 = (budget_cent/100) / (price_4dp/10_000) × 10_000
+        #             = budget_cent × 1_000_000 // price_4dp   (integer floor)
+        max_units   = budget_cent * 1_000_000 // price_4dp
+        valid_units = (max_units // share_step) * share_step    # floor to nearest valid step
+
+        if valid_units <= 0:
+            return 0.0, 0.0
+
+        size_shares = valid_units / 10_000
+        # Exact USDC cost — price_4dp × valid_units is guaranteed divisible by 1_000_000
+        # USDC_cents = price_4dp × valid_units / 1_000_000  (exact integer)
+        usdc_cents  = price_4dp * valid_units // 1_000_000
+        actual_usdc = usdc_cents / 100          # e.g. 1260 → $12.60
+        return size_shares, actual_usdc
+
     async def snipe(
         self,
         token_id: str,
@@ -406,21 +459,28 @@ class OrderManager:
                 "(%.2f shares within %.0f¢ of ask)",
                 usdc, avail_usdc, avail_shares, _MAX_SLIPPAGE_CENTS * 100,
             )
-            usdc   = avail_usdc
-            shares = avail_shares   # use book's share count directly
+            usdc = avail_usdc   # cap budget; do NOT use avail_shares directly (precision unsafe)
 
         if use_maker:
             maker_price = round(ask_price - 0.001, 4)
-            order_args  = OrderArgs(
-                token_id=token_id, price=maker_price, size=shares, side=side,
+            # ── Precision-safe maker amounts (GCD arithmetic) ─────────────────
+            m_shares, m_usdc = self._safe_order_amounts(usdc, maker_price)
+            if m_shares <= 0:
+                logger.warning(
+                    "Maker path: no valid share qty for price=%.4f budget=$%.2f — "
+                    "falling back to IOC", maker_price, usdc,
+                )
+                return await self._place_ioc_limit_order(
+                    token_id, side, usdc, ask_price, max_acceptable_price, loop, fee_bps
+                )
+            order_args = OrderArgs(
+                token_id=token_id, price=maker_price, size=m_shares, side=side,
                 fee_rate_bps=fee_bps,
             )
             options = PartialCreateOrderOptions()
             try:
                 result = await self._sdk_call(
-
                     lambda: self._client.create_and_post_order(order_args, options)
-
                 )
                 _check_response(result, "maker")
                 await asyncio.sleep(_MAKER_WAIT_SECONDS)
@@ -437,11 +497,11 @@ class OrderManager:
                     return await self._place_ioc_limit_order(
                         token_id, side, usdc, ask_price, max_acceptable_price, loop, fee_bps
                     )
-                # Maker filled at known price — inject fill data
+                # Maker filled — inject verified fill data
                 if status_resp:
                     status_resp["actual_fill_price"]  = maker_price
-                    status_resp["actual_fill_shares"] = shares
-                    status_resp["actual_fill_usdc"]   = maker_price * shares
+                    status_resp["actual_fill_shares"] = m_shares
+                    status_resp["actual_fill_usdc"]   = m_usdc
                 await self.verify_trade(order_id)
                 return status_resp
             except Exception as exc:
@@ -994,27 +1054,22 @@ class OrderManager:
         Fills only at prices <= max_price; cancels any unfilled remainder.
         This prevents book-sweeping that destroys average entry price.
         """
-        # ── Precision clamp — Polymarket API hard limits ──────────────────────
-        # For a BUY order the SDK computes:
-        #   taker_amount = size_shares          (what we receive) → max 4dp
-        #   maker_amount = max_price * size     (USDC we spend)   → max 2dp
-        #
-        # The ORDER price is max_price, NOT signal_price — so size must be
-        # derived from max_price to keep max_price × size clean.
-        # Use Decimal to avoid IEEE-754 drift (e.g. 0.616 * 20.6818 → 12.73999..)
-        from decimal import Decimal, ROUND_DOWN
-        _maxp_d   = Decimal(str(max_price))
-        _usdc_d   = Decimal(str(round(amount_usdc, 2)))
-        # Floor shares to 4dp so we never overspend
-        _size_d   = (_usdc_d / _maxp_d).quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
-        # Re-derive maker USDC from the floored share count (floor → conservative)
-        _maker_d  = (_maxp_d * _size_d).quantize(Decimal("0.01"),   rounding=ROUND_DOWN)
-        size_shares = float(_size_d)
-        amount_usdc = float(_maker_d)   # corrected; used for fill tracking downstream
+        # ── Precision-safe amounts — integer GCD arithmetic ──────────────────
+        # The SDK internally computes makerAmount = round(max_price × takerAmount)
+        # where takerAmount = round(size × 1e6).  Simple float rounding can't
+        # guarantee that product has ≤ 2dp.  _safe_order_amounts() uses GCD
+        # arithmetic to find the LARGEST share count where the product is exact.
+        size_shares, amount_usdc = self._safe_order_amounts(amount_usdc, max_price)
+        if size_shares <= 0:
+            logger.error(
+                "IOC pre-flight: no valid share quantity for price=%.4f "
+                "budget=$%.2f — order skipped",
+                max_price, amount_usdc,
+            )
+            return None
         logger.debug(
-            "IOC precision clamp: signal=$%.4f max=$%.4f "
-            "usdc=%.2f shares=%.4f maker=%.2f",
-            signal_price, max_price, float(_usdc_d), size_shares, amount_usdc,
+            "IOC precision: signal=$%.4f max=$%.4f → size=%.4f shares maker=$%.2f",
+            signal_price, max_price, size_shares, amount_usdc,
         )
         order_args  = OrderArgs(
             token_id=token_id,
