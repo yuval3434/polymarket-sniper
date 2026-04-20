@@ -284,7 +284,9 @@ async def sniper_loop(
             # Rejected by live guardrail (already logged by risk manager)
             continue
 
-        state.snipe_fired = True
+        # NOTE: snipe_fired flag intentionally removed — re-entry is governed
+        # solely by position_manager.has_open_position so the bot can surf
+        # multiple entries within the same market window.
 
         mode_tag = "[PAPER]" if dry_run else "[LIVE]"
         logger.info(
@@ -323,6 +325,18 @@ async def _snipe_and_correct_entry(
         p_true=p_true,
     )
     if not result:
+        # ── Ghost-position guard ───────────────────────────────────────────────
+        # The order was rejected (None result: 425 error, liquidity failure, etc.).
+        # open_position() was already called before this task ran, so _position
+        # is occupied with a "phantom" trade. Clear it immediately so the sniper
+        # loop can attempt re-entry on the next tick.
+        if orchestrator.position_manager._position is not None:
+            logger.warning(
+                "ORDER REJECTED: clearing ghost position for %s — no fill received, "
+                "re-entry unlocked for next tick.",
+                orchestrator.position_manager._position.token_id,
+            )
+            orchestrator.position_manager._position = None
         return
 
     # actual_fill_price / actual_fill_shares are only injected for live orders.

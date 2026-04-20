@@ -35,8 +35,8 @@ class MarketState:
     kill_switch_reason: str = ""
     kill_switch_source: str = ""   # "binance" | "polymarket" — used by stream loops for targeted recovery
 
-    # Snipe guard — prevent firing more than once per market window
-    snipe_fired: bool = False
+    # NOTE: snipe_fired guard removed in v1.9.1 — re-entry is governed by
+    # position_manager.has_open_position, allowing multi-surf within one window.
 
     def is_ready(self) -> bool:
         return (
@@ -54,5 +54,4 @@ class MarketState:
         self.down_best_ask = 1.0
         self.up_best_bid = 0.0
         self.down_best_bid = 0.0
-        self.snipe_fired = False
         self.opening_price = self.btc_price  # snapshot Binance price at open

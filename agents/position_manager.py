@@ -413,13 +413,17 @@ class PositionManager:
             )
 
             if not success:
+                # ── Sell failed ────────────────────────────────────────────
+                # DO NOT call force_halt() — that permanently locks the sniper
+                # loop via risk_manager.halted and prevents all future trades.
+                # Instead, keep _position alive so monitor_loop retries the exit
+                # on the next 500ms tick.  Emit a CRITICAL log for visibility.
                 halt_msg = (
                     f"SELL_EXHAUSTED [{exit_type}]: token={pos.token_id} "
                     f"size={pos.size_shares:.4f} bid={exit_bid:.4f} — "
-                    "Manual intervention required!"
+                    "Retrying exit on next monitor tick — manual intervention may be needed!"
                 )
                 logger.critical("CRITICAL_ERROR: %s", halt_msg)
-                self.risk_manager.force_halt(halt_msg)
                 return  # keep _position open for next monitor tick
 
         pnl_usd = (actual_exit_price - pos.entry_price) * pos.size_shares
