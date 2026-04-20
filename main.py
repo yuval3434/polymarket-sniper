@@ -141,7 +141,7 @@ async def sniper_loop(
         if tau < window_close:
             continue
 
-        if state.snipe_fired or orchestrator.position_manager.has_open_position:
+        if orchestrator.position_manager.has_open_position:
             continue
 
         P_up, P_down, Z = calculate_probability(state)
