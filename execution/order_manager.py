@@ -625,7 +625,7 @@ class OrderManager:
             )
             await self._rate_limiter.acquire()
             result = await loop.run_in_executor(
-                None, lambda: self._client.post_order(signed, OrderType.IOC)
+                None, lambda: self._client.post_order(signed, OrderType.FAK)
             )
             _check_response(result, f"ioc_sell@{floor_price:.4f}")
             await asyncio.sleep(0.3)   # brief settlement pause
@@ -962,7 +962,7 @@ class OrderManager:
             )
             await self._rate_limiter.acquire()
             result = await loop.run_in_executor(
-                None, lambda: self._client.post_order(signed_order, OrderType.IOC)
+                None, lambda: self._client.post_order(signed_order, OrderType.FAK)
             )
             _check_response(result, "ioc_limit")
             order_id = (result or {}).get("orderID") or (result or {}).get("id", "") if result else ""
