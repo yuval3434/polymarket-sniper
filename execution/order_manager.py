@@ -200,7 +200,7 @@ class OrderManager:
     async def _sdk_call(self, func):
         """Execute a py-clob-client lambda function with automatic retry for 425 'service not ready'."""
         loop = __import__('asyncio').get_event_loop()
-        max_attempts = 4
+        max_attempts = 6
         for attempt in range(1, max_attempts + 1):
             await self._rate_limiter.acquire()
             try:
@@ -417,9 +417,10 @@ class OrderManager:
             )
             options = PartialCreateOrderOptions()
             try:
-                await self._rate_limiter.acquire()
-                result = await loop.run_in_executor(
-                    None, lambda: self._client.create_and_post_order(order_args, options)
+                result = await self._sdk_call(
+
+                    lambda: self._client.create_and_post_order(order_args, options)
+
                 )
                 _check_response(result, "maker")
                 await asyncio.sleep(_MAKER_WAIT_SECONDS)
@@ -870,12 +871,14 @@ class OrderManager:
                     size=size_shares,
                     side="SELL",
                 )
-                await self._rate_limiter.acquire()
-                result = await loop.run_in_executor(
-                    None,
+                result = await self._sdk_call(
+
                     lambda: self._client.create_and_post_order(
+
                         order_args, PartialCreateOrderOptions()
-                    ),
+
+                    )
+
                 )
                 _check_response(result, f"sell_attempt_{attempt}")
                 prev_order_id = (result or {}).get("orderID") or (result or {}).get("id", "")
