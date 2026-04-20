@@ -200,7 +200,7 @@ class OrderManager:
     async def _sdk_call(self, func):
         """Execute a py-clob-client lambda function with automatic retry for 425 'service not ready'."""
         loop = __import__('asyncio').get_event_loop()
-        max_attempts = 6
+        max_attempts = 30
         for attempt in range(1, max_attempts + 1):
             await self._rate_limiter.acquire()
             try:
@@ -209,7 +209,7 @@ class OrderManager:
                 exc_str = str(exc).lower()
                 if "425" in exc_str or "service not ready" in exc_str:
                     if attempt < max_attempts:
-                        delay = 0.5 * (2 ** (attempt - 1))
+                        delay = min(1.0, 0.25 * (2 ** (attempt - 1)))
                         import logging
                         logging.getLogger(__name__).warning("API 425 'service not ready' — waiting %.2fs and retrying (attempt %d/%d)", delay, attempt, max_attempts)
                         await __import__('asyncio').sleep(delay)
