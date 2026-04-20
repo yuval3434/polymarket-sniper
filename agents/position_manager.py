@@ -12,14 +12,16 @@ Exit logic overview:
   TRAILING STOP STATE MACHINE  (trail_level)
   ───────────────────────────────────────────
   Level 0 — Initial stop at P × 0.50
-    • Bid rises to P × 1.25 (+25%)  →  advance to Level 1
+    • Bid rises to P × 1.15 (+15%)  →  activate continuous trail (Level 1)
 
-  Level 1 — Stop moves to BREAKEVEN (P × 1.00)
-    • Trade is now "risk-free": worst case is 0% loss
-    • Bid rises to P × 1.50 (+50%)  →  advance to Level 2
+  Level 1 — Continuous Trail Active
+    • Stop = peak_bid × 0.85 (15% below peak)
+    • Stop price rises tick-by-tick. It never falls.
+    • Once stop >= P (breakeven) → advance to Level 2
 
-  Level 2 — Stop moves to +25% profit (P × 1.25)
-    • Guaranteed minimum profit of +25% if stopped out
+  Level 2 — Breakeven Lock Engaged
+    • Stop = max(peak_bid × 0.85, P)
+    • The trade is now risk-free (stop can never drop below entry P).
     • Upside remains unlimited until expiry
 
   At any level: if bid drops to or below trailing_stop_price → TRAILING_STOP exit.
@@ -64,11 +66,9 @@ from market.state import MarketState
 logger = logging.getLogger(__name__)
 
 # ── Trailing stop parameters ───────────────────────────────────────────────
-INITIAL_STOP_MULT   = 0.50   # initial stop = entry × 0.50  (−50% loss)
-TRAIL_L1_TRIGGER    = 1.25   # +25% profit  → stop moves to breakeven
-TRAIL_L2_TRIGGER    = 1.50   # +50% profit  → stop moves to +25%
-TRAIL_L1_STOP_MULT  = 1.00   # breakeven stop
-TRAIL_L2_STOP_MULT  = 1.25   # +25% guaranteed floor
+INITIAL_STOP_MULT      = 0.50   # initial stop = entry × 0.50  (−50% loss)
+TRAIL_ACTIVATION_MULT  = 1.15   # activate trail when peak_bid >= entry * 1.15
+TRAIL_DISTANCE_MULT    = 0.85   # trailing_stop = peak_bid * 0.85
 
 # ── Hold-to-expiry parameters ──────────────────────────────────────────────
 HTE_BID_THRESHOLD   = 0.85   # bid must be above this to trigger HTE
@@ -97,19 +97,19 @@ class OpenPosition:
     # ── Trailing stop state (populated in __post_init__) ──────────────────
     # trail_level tracks which ratchet tier we're on:
     #   0 = initial stop (entry × 0.50)
-    #   1 = breakeven stop (entry × 1.00) — triggered at +25%
-    #   2 = +25% floor stop (entry × 1.25) — triggered at +50%
+    #   1 = continuous trail activated (stop = peak_bid × 0.85)
+    #   2 = breakeven locked (stop >= entry_price)
     trail_level:         int   = field(init=False)
     trailing_stop_price: float = field(init=False)
     peak_bid:            float = field(init=False)
     initial_risk_per_share: float = field(init=False)
 
     def __post_init__(self) -> None:
-        # Initial stop = 50% of entry price (e.g. entry=0.60 → stop=0.30)
+        # Initial hard stop = 50% of entry price (e.g. entry=0.60 → stop=0.30)
         self.trailing_stop_price    = max(self.entry_price * INITIAL_STOP_MULT, 0.01)
         self.peak_bid               = self.entry_price
-        self.trail_level            = 0
-        # Locked in at open for R:R calculation — never changes
+        self.trail_level            = 0   # 0=initial | 1=continuous | 2=breakeven-locked
+        # Locked in at open for R:R calculation — never changes after this point
         self.initial_risk_per_share = self.entry_price - self.trailing_stop_price
 
     def correct_entry_price(
@@ -177,38 +177,56 @@ class OpenPosition:
 
     def update_trail(self, bid: float) -> bool:
         """
-        Ratchet the trailing stop upward as the trade moves in our favour.
-        Returns True if the stop level was advanced (for logging).
+        Continuous trailing stop — ratchets upward tick-by-tick, never downward.
 
-        Ratchet math:
-          Level 0→1: bid reaches entry × 1.25  →  stop = entry × 1.00
-            e.g. entry=0.60, bid=0.75  →  stop moves from 0.30 to 0.60
-            Now worst-case is 0% loss instead of −50%.
+        Phase logic:
+          Phase 0 (trail_level=0): hard initial stop holds at entry × 0.50.
+            Once peak_bid >= entry × 1.15 (+15%)  →  activate continuous trail.
 
-          Level 1→2: bid reaches entry × 1.50  →  stop = entry × 1.25
-            e.g. entry=0.60, bid=0.90  →  stop moves from 0.60 to 0.75
-            Now minimum locked-in profit is +25%.
+          Phase 1 (trail_level=1): continuous trail active.
+            stop = peak_bid × 0.85  (always exactly 15% below the all-time peak).
+            Stop rises with every new peak tick. It can never fall.
+            Once stop >= entry_price  →  promote to Phase 2.
+
+          Phase 2 (trail_level=2): breakeven lock engaged.
+            stop = max(peak_bid × 0.85, entry_price)
+            The trade is permanently risk-free — stop will never drop below entry.
+
+        Returns True if the stop price actually moved this tick (for logging).
         """
+        # Update high-water mark — only ever moves up
         self.peak_bid = max(self.peak_bid, bid)
-        advanced = False
+        old_stop      = self.trailing_stop_price
 
-        if self.trail_level < 2 and self.peak_bid >= self.entry_price * TRAIL_L2_TRIGGER:
-            # +50% peak reached → lock in +25% floor
-            new_stop = self.entry_price * TRAIL_L2_STOP_MULT
-            if new_stop > self.trailing_stop_price:
-                self.trailing_stop_price = new_stop
-                self.trail_level = 2
-                advanced = True
-
-        elif self.trail_level < 1 and self.peak_bid >= self.entry_price * TRAIL_L1_TRIGGER:
-            # +25% peak reached → move stop to breakeven
-            new_stop = self.entry_price * TRAIL_L1_STOP_MULT
-            if new_stop > self.trailing_stop_price:
-                self.trailing_stop_price = new_stop
+        if self.trail_level == 0:
+            # ── Phase 0: wait for activation threshold ───────────────────────
+            if self.peak_bid >= self.entry_price * TRAIL_ACTIVATION_MULT:
+                # Activate: immediately set continuous stop from current peak
+                candidate = self.peak_bid * TRAIL_DISTANCE_MULT
+                self.trailing_stop_price = max(candidate, old_stop)  # never below initial hard stop
                 self.trail_level = 1
-                advanced = True
+                # Check immediately if breakeven lock should also engage
+                if self.trailing_stop_price >= self.entry_price:
+                    self.trail_level = 2
+        else:
+            # ── Phase 1 / 2: continuous ratchet ────────────────────────────
+            candidate = self.peak_bid * TRAIL_DISTANCE_MULT
 
-        return advanced
+            if self.trail_level == 2:
+                # Breakeven lock: stop can never go below entry price
+                new_stop = max(candidate, self.entry_price)
+            else:
+                # Phase 1: pure continuous trail (stop still below entry)
+                new_stop = candidate
+                # Promote to Phase 2 if stop has now crossed above entry
+                if new_stop >= self.entry_price:
+                    new_stop         = max(new_stop, self.entry_price)
+                    self.trail_level = 2
+
+            # Ratchet rule: stop can only ever move up, never down
+            self.trailing_stop_price = max(new_stop, self.trailing_stop_price)
+
+        return self.trailing_stop_price > old_stop  # True = stop actually moved
 
     def risk_reward_ratio(self, exit_price: float) -> float:
         """
@@ -301,7 +319,7 @@ class PositionManager:
             f"  ({size_shares:.4f} shares)\n"
             f"  P(win)  : {p_true:.1%}   Z-score: {z_score:.3f}\n"
             f"  Stop    : ${pos.trailing_stop_price:.4f}  (−50% / Level 0)\n"
-            f"  Trail   : +25% → breakeven | +50% → lock +25% floor\n"
+            f"  Trail   : ACTIVATE @ +15% | RATCHET @ -15% peak | BREAKEVEN LOCK\n"
             f"{pending_note}"
             f"{'═'*62}\n"
         )
@@ -331,14 +349,18 @@ class PositionManager:
             if age < MIN_HOLD_SECONDS:
                 continue
 
-            # ── Advance trailing stop (ratchet up, never down) ────────────
-            advanced = pos.update_trail(bid)
-            if advanced:
-                level_labels = {1: "BREAKEVEN", 2: "+25% FLOOR"}
+            # ── Advance continuous trailing stop ────────────────────────────────
+            stop_moved = pos.update_trail(bid)
+            if stop_moved:
+                phase_label = {
+                    0: "INITIAL",
+                    1: "CONTINUOUS",
+                    2: "BREAKEVEN-LOCKED",
+                }.get(pos.trail_level, "ACTIVE")
                 logger.info(
-                    "TRAIL ADVANCED to Level %d (%s): stop=%.4f | bid=%.4f | entry=%.4f",
-                    pos.trail_level, level_labels.get(pos.trail_level, "?"),
-                    pos.trailing_stop_price, bid, pos.entry_price,
+                    "TRAIL [%s] stop raised: $%.4f | peak=%.4f | bid=%.4f | entry=%.4f",
+                    phase_label, pos.trailing_stop_price,
+                    pos.peak_bid, bid, pos.entry_price,
                 )
 
             # ── Hold-to-Expiry override ───────────────────────────────────
@@ -354,8 +376,8 @@ class PositionManager:
             if bid <= pos.trailing_stop_price:
                 exit_label = {
                     0: "STOP_LOSS",
-                    1: "TRAIL_BREAKEVEN",
-                    2: "TRAIL_PROFIT_FLOOR",
+                    1: "TRAIL_CONTINUOUS",
+                    2: "TRAIL_LOCKED",
                 }.get(pos.trail_level, "TRAILING_STOP")
                 logger.info(
                     "%s: bid=%.4f <= stop=%.4f | level=%d | entry=%.4f",
