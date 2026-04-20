@@ -102,6 +102,12 @@ async def sniper_loop(
     _last_price_reject_key = ("", 0.0)  # (market_id, ask_price) — suppress repeat prints
     _cb_logged = False   # suppress circuit-breaker spam — log once when it trips
 
+    # ── Sniper one-trade-per-window lock ─────────────────────────────────────
+    # Once a snipe fires for a given market_id (win, loss, or stop-out) that
+    # market is permanently locked for the rest of its 5-minute window.
+    # The set is cleared naturally when a new market is discovered (new market_id).
+    traded_markets: set[str] = set()
+
     while True:
         await asyncio.sleep(_SNIPE_POLL_INTERVAL)
 
@@ -139,6 +145,10 @@ async def sniper_loop(
             continue
 
         if tau < window_close:
+            continue
+
+        # ── Per-market snipe lock (Sniper mode: one trade per window) ─────────
+        if state.market_id in traded_markets:
             continue
 
         if orchestrator.position_manager.has_open_position:
@@ -284,9 +294,15 @@ async def sniper_loop(
             # Rejected by live guardrail (already logged by risk manager)
             continue
 
-        # NOTE: snipe_fired flag intentionally removed — re-entry is governed
-        # solely by position_manager.has_open_position so the bot can surf
-        # multiple entries within the same market window.
+        # ── Lock this market for the rest of its window ───────────────────────
+        # Sniper mode: one trade per 5-minute market, no exceptions.
+        # Lock BEFORE firing so that even if the async task fires and clears
+        # a ghost position, we never re-enter the same market window.
+        traded_markets.add(state.market_id)
+        logger.info(
+            "SNIPER LOCK: market %s added to traded_markets — no re-entry this window.",
+            state.market_id,
+        )
 
         mode_tag = "[PAPER]" if dry_run else "[LIVE]"
         logger.info(

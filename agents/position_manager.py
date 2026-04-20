@@ -15,12 +15,12 @@ Exit logic overview:
     • Bid rises to P × 1.15 (+15%)  →  activate continuous trail (Level 1)
 
   Level 1 — Continuous Trail Active
-    • Stop = peak_bid × 0.85 (15% below peak)
+    • Stop = peak_bid × 0.75 (25% below peak)
     • Stop price rises tick-by-tick. It never falls.
     • Once stop >= P (breakeven) → advance to Level 2
 
   Level 2 — Breakeven Lock Engaged
-    • Stop = max(peak_bid × 0.85, P)
+    • Stop = max(peak_bid × 0.75, P)
     • The trade is now risk-free (stop can never drop below entry P).
     • Upside remains unlimited until expiry
 
@@ -68,7 +68,7 @@ logger = logging.getLogger(__name__)
 # ── Trailing stop parameters ───────────────────────────────────────────────
 INITIAL_STOP_MULT      = 0.50   # initial stop = entry × 0.50  (−50% loss)
 TRAIL_ACTIVATION_MULT  = 1.15   # activate trail when peak_bid >= entry * 1.15
-TRAIL_DISTANCE_MULT    = 0.85   # trailing_stop = peak_bid * 0.85
+TRAIL_DISTANCE_MULT    = 0.75   # trailing_stop = peak_bid * 0.75  (25% below peak)
 
 # ── Hold-to-expiry parameters ──────────────────────────────────────────────
 HTE_BID_THRESHOLD   = 0.85   # bid must be above this to trigger HTE
@@ -76,6 +76,7 @@ HTE_TAU_THRESHOLD   = 60.0   # seconds remaining when HTE kicks in
 
 MONITOR_INTERVAL_S  = 0.5    # position check every 500ms
 MIN_HOLD_SECONDS    = 5.0    # ignore exits within 5s of entry (noise)
+STOP_DEBOUNCE_S     = 3.0    # bid must stay below stop for this many seconds before exit
 
 
 @dataclass
@@ -97,18 +98,20 @@ class OpenPosition:
     # ── Trailing stop state (populated in __post_init__) ──────────────────
     # trail_level tracks which ratchet tier we're on:
     #   0 = initial stop (entry × 0.50)
-    #   1 = continuous trail activated (stop = peak_bid × 0.85)
+    #   1 = continuous trail activated (stop = peak_bid × 0.75)
     #   2 = breakeven locked (stop >= entry_price)
     trail_level:         int   = field(init=False)
     trailing_stop_price: float = field(init=False)
     peak_bid:            float = field(init=False)
     initial_risk_per_share: float = field(init=False)
+    _stop_breach_since:  float = field(init=False)   # monotonic time of first breach (0.0 = none)
 
     def __post_init__(self) -> None:
         # Initial hard stop = 50% of entry price (e.g. entry=0.60 → stop=0.30)
         self.trailing_stop_price    = max(self.entry_price * INITIAL_STOP_MULT, 0.01)
         self.peak_bid               = self.entry_price
         self.trail_level            = 0   # 0=initial | 1=continuous | 2=breakeven-locked
+        self._stop_breach_since     = 0.0  # no active breach yet
         # Locked in at open for R:R calculation — never changes after this point
         self.initial_risk_per_share = self.entry_price - self.trailing_stop_price
 
@@ -184,12 +187,12 @@ class OpenPosition:
             Once peak_bid >= entry × 1.15 (+15%)  →  activate continuous trail.
 
           Phase 1 (trail_level=1): continuous trail active.
-            stop = peak_bid × 0.85  (always exactly 15% below the all-time peak).
+            stop = peak_bid × 0.75  (always exactly 25% below the all-time peak).
             Stop rises with every new peak tick. It can never fall.
             Once stop >= entry_price  →  promote to Phase 2.
 
           Phase 2 (trail_level=2): breakeven lock engaged.
-            stop = max(peak_bid × 0.85, entry_price)
+            stop = max(peak_bid × 0.75, entry_price)
             The trade is permanently risk-free — stop will never drop below entry.
 
         Returns True if the stop price actually moved this tick (for logging).
@@ -319,7 +322,7 @@ class PositionManager:
             f"  ({size_shares:.4f} shares)\n"
             f"  P(win)  : {p_true:.1%}   Z-score: {z_score:.3f}\n"
             f"  Stop    : ${pos.trailing_stop_price:.4f}  (−50% / Level 0)\n"
-            f"  Trail   : ACTIVATE @ +15% | RATCHET @ -15% peak | BREAKEVEN LOCK\n"
+            f"  Trail   : ACTIVATE @ +15% | RATCHET @ -25% peak | BREAKEVEN LOCK\n"
             f"{pending_note}"
             f"{'═'*62}\n"
         )
@@ -372,20 +375,43 @@ class PositionManager:
                 )
                 continue
 
-            # ── Trailing Stop check ───────────────────────────────────────
+            # ── Trailing Stop check with 3-second debounce ───────────────────
+            # A momentary dip below the stop must STAY below for STOP_DEBOUNCE_S
+            # consecutive seconds before we actually exit. This prevents panic
+            # selling on a single-tick wick that immediately recovers.
             if bid <= pos.trailing_stop_price:
-                exit_label = {
-                    0: "STOP_LOSS",
-                    1: "TRAIL_CONTINUOUS",
-                    2: "TRAIL_LOCKED",
-                }.get(pos.trail_level, "TRAILING_STOP")
-                logger.info(
-                    "%s: bid=%.4f <= stop=%.4f | level=%d | entry=%.4f",
-                    exit_label, bid, pos.trailing_stop_price,
-                    pos.trail_level, pos.entry_price,
-                )
-                await self._close_early(pos, bid, exit_label, state)
-                continue
+                now_mono = time.monotonic()
+                if pos._stop_breach_since == 0.0:
+                    # First tick below stop — start the debounce clock
+                    pos._stop_breach_since = now_mono
+                    logger.debug(
+                        "STOP BREACH START: bid=%.4f stop=%.4f — debounce %.0fs begun",
+                        bid, pos.trailing_stop_price, STOP_DEBOUNCE_S,
+                    )
+                elif now_mono - pos._stop_breach_since >= STOP_DEBOUNCE_S:
+                    # Bid has stayed below stop for the full debounce window — exit now
+                    exit_label = {
+                        0: "STOP_LOSS",
+                        1: "TRAIL_CONTINUOUS",
+                        2: "TRAIL_LOCKED",
+                    }.get(pos.trail_level, "TRAILING_STOP")
+                    logger.info(
+                        "%s: bid=%.4f <= stop=%.4f | level=%d | entry=%.4f "
+                        "(held below stop %.1fs ≥ %.0fs debounce)",
+                        exit_label, bid, pos.trailing_stop_price,
+                        pos.trail_level, pos.entry_price,
+                        now_mono - pos._stop_breach_since, STOP_DEBOUNCE_S,
+                    )
+                    await self._close_early(pos, bid, exit_label, state)
+                # else: still within debounce window — wait another tick
+            else:
+                # Bid recovered above stop — reset debounce clock
+                if pos._stop_breach_since != 0.0:
+                    logger.debug(
+                        "STOP BREACH CANCELLED: bid=%.4f recovered above stop=%.4f — debounce reset",
+                        bid, pos.trailing_stop_price,
+                    )
+                    pos._stop_breach_since = 0.0
 
     # ------------------------------------------------------------------
     # Close helpers
