@@ -994,7 +994,14 @@ class OrderManager:
         Fills only at prices <= max_price; cancels any unfilled remainder.
         This prevents book-sweeping that destroys average entry price.
         """
-        size_shares = round(amount_usdc / signal_price, 4)
+        # ── Precision clamp — Polymarket API hard limits ──────────────────────
+        # maker amount (USDC spent)   → max 2 decimal places
+        # taker amount (shares bought) → max 4 decimal places
+        # Floating-point arithmetic on raw bet sizes produces values like
+        # 12.739100000003 which the API rejects.  Round both to their allowed
+        # precision BEFORE building the order.
+        amount_usdc = round(amount_usdc, 2)                        # 2dp USDC
+        size_shares = round(amount_usdc / signal_price, 4)         # 4dp shares
         order_args  = OrderArgs(
             token_id=token_id,
             price=max_price,
