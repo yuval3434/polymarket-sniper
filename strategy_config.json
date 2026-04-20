@@ -27,7 +27,7 @@
     "use_momentum": true,
     "momentum_lookback_seconds": 30,
     "momentum_min_pct": 0.05,
-    "use_spread_filter": false,
+    "use_spread_filter": true,
     "max_poly_spread": 0.10,
     "use_obi_filter": true,
     "obi_min_ratio": 0.35
