@@ -55,6 +55,40 @@ _MAKER_TRY_SECONDS    = 2.0   # wait for passive maker sell before falling back 
 _CHUNK_WAIT_SECONDS   = 3.0   # pause between partial exit chunks (book replenishment)
 _CHUNK_THIN_RATIO     = 0.80  # chunk if available bid depth < 80% of position size
 
+# ── API rate limiter (leaky bucket) ────────────────────────────────────────────
+_RATE_LIMIT_CALLS_PER_SEC = 6   # max SDK calls/s — well below Polymarket's ~10/s limit
+
+
+class _RateLimiter:
+    """
+    Token-bucket rate limiter for py-clob-client SDK calls.
+
+    Enforces at most `rate` calls per second.  Callers await acquire() before
+    every live SDK call; the coroutine sleeps only when the bucket is empty.
+    Thread-safe via asyncio — no locking needed in a single-event-loop design.
+    """
+
+    def __init__(self, rate: float = _RATE_LIMIT_CALLS_PER_SEC) -> None:
+        self._rate        = rate
+        self._tokens      = rate          # start full
+        self._last_refill = time.monotonic()
+
+    async def acquire(self) -> None:
+        """Wait until a token is available, then consume one."""
+        while True:
+            now     = time.monotonic()
+            elapsed = now - self._last_refill
+            self._tokens      = min(self._rate, self._tokens + elapsed * self._rate)
+            self._last_refill = now
+
+            if self._tokens >= 1.0:
+                self._tokens -= 1.0
+                return
+
+            wait = (1.0 - self._tokens) / self._rate
+            logger.debug("RateLimiter: bucket empty — sleeping %.3fs", wait)
+            await asyncio.sleep(wait)
+
 
 async def _fetch_ask_depth_usdc(token_id: str, max_price: float) -> tuple[float, float]:
     """
@@ -159,11 +193,15 @@ class OrderManager:
         else:
             logger.error("py-clob-client not available — cannot run in live mode")
 
+        # Rate limiter shared across all SDK call sites — applies in live mode only
+        self._rate_limiter = _RateLimiter(_RATE_LIMIT_CALLS_PER_SEC)
+
     async def cancel_all(self) -> None:
         if self._client is None:
             return
         try:
             loop = asyncio.get_event_loop()
+            await self._rate_limiter.acquire()
             await loop.run_in_executor(None, self._client.cancel_all)
             logger.info("cancel_all() completed")
         except Exception as exc:
@@ -175,6 +213,7 @@ class OrderManager:
             return
         loop = asyncio.get_event_loop()
         try:
+            await self._rate_limiter.acquire()
             open_orders = await loop.run_in_executor(None, self._client.get_orders)
             logger.info("POST-TRADE open orders: %s", open_orders)
         except Exception as exc:
@@ -358,18 +397,21 @@ class OrderManager:
             )
             options = PartialCreateOrderOptions()
             try:
+                await self._rate_limiter.acquire()
                 result = await loop.run_in_executor(
                     None, lambda: self._client.create_and_post_order(order_args, options)
                 )
                 _check_response(result, "maker")
                 await asyncio.sleep(_MAKER_WAIT_SECONDS)
                 order_id    = result.get("orderID") or result.get("id", "") if result else ""
+                await self._rate_limiter.acquire()
                 status_resp = await loop.run_in_executor(
                     None, lambda: self._client.get_order(order_id)
                 )
                 logger.info("Maker order status: %s", status_resp)
                 if (status_resp or {}).get("status") not in ("MATCHED", "FILLED"):
                     logger.info("Maker not filled — cancelling, falling back to IOC limit")
+                    await self._rate_limiter.acquire()
                     await loop.run_in_executor(None, lambda: self._client.cancel(order_id))
                     return await self._place_ioc_limit_order(
                         token_id, side, usdc, ask_price, max_acceptable_price, loop, fee_bps
@@ -577,9 +619,11 @@ class OrderManager:
         options = PartialCreateOrderOptions()
         try:
             balance_before = await self._get_token_balance(token_id, loop)
+            await self._rate_limiter.acquire()
             signed = await loop.run_in_executor(
                 None, lambda: self._client.create_order(order_args, options)
             )
+            await self._rate_limiter.acquire()
             result = await loop.run_in_executor(
                 None, lambda: self._client.post_order(signed, OrderType.IOC)
             )
@@ -594,6 +638,7 @@ class OrderManager:
                 order_id = (result or {}).get("orderID") or (result or {}).get("id", "") if result else ""
                 if order_id:
                     try:
+                        await self._rate_limiter.acquire()
                         status = await loop.run_in_executor(
                             None, lambda: self._client.get_order(order_id)
                         )
@@ -644,6 +689,7 @@ class OrderManager:
         order_id = ""
         try:
             balance_before = await self._get_token_balance(token_id, loop)
+            await self._rate_limiter.acquire()
             result = await loop.run_in_executor(
                 None,
                 lambda: self._client.create_and_post_order(
@@ -669,6 +715,7 @@ class OrderManager:
             actual_price = bid_price
             if order_id:
                 try:
+                    await self._rate_limiter.acquire()
                     status = await loop.run_in_executor(
                         None, lambda: self._client.get_order(order_id)
                     )
@@ -697,6 +744,7 @@ class OrderManager:
         """Return on-chain conditional token balance in shares (handles 1e6 decimals)."""
         try:
             from py_clob_client.clob_types import BalanceAllowanceParams, AssetType
+            await self._rate_limiter.acquire()
             resp = await loop.run_in_executor(
                 None,
                 lambda: self._client.get_balance_allowance(
@@ -789,6 +837,7 @@ class OrderManager:
             # Cancel previous unfilled order before retrying at a lower price
             if prev_order_id:
                 try:
+                    await self._rate_limiter.acquire()
                     await loop.run_in_executor(
                         None, lambda: self._client.cancel(prev_order_id)
                     )
@@ -805,6 +854,7 @@ class OrderManager:
                     size=size_shares,
                     side="SELL",
                 )
+                await self._rate_limiter.acquire()
                 result = await loop.run_in_executor(
                     None,
                     lambda: self._client.create_and_post_order(
@@ -835,6 +885,7 @@ class OrderManager:
                     actual_price = current_price
                     if prev_order_id:
                         try:
+                            await self._rate_limiter.acquire()
                             status = await loop.run_in_executor(
                                 None, lambda: self._client.get_order(prev_order_id)
                             )
@@ -901,6 +952,7 @@ class OrderManager:
         options = PartialCreateOrderOptions()
         try:
             # Two-step: create signed limit order, then post as IOC
+            await self._rate_limiter.acquire()
             signed_order = await loop.run_in_executor(
                 None, lambda: self._client.create_order(order_args, options)
             )
@@ -908,6 +960,7 @@ class OrderManager:
                 "IOC limit order signed: %.4f shares @ max $%.4f (signal $%.4f)",
                 size_shares, max_price, signal_price,
             )
+            await self._rate_limiter.acquire()
             result = await loop.run_in_executor(
                 None, lambda: self._client.post_order(signed_order, OrderType.IOC)
             )
@@ -921,6 +974,7 @@ class OrderManager:
 
             try:
                 from py_clob_client.clob_types import BalanceAllowanceParams, AssetType
+                await self._rate_limiter.acquire()
                 resp = await loop.run_in_executor(
                     None,
                     lambda: self._client.get_balance_allowance(
@@ -944,6 +998,7 @@ class OrderManager:
             # Fallback: get_order for fill price
             if not actual_price and order_id:
                 try:
+                    await self._rate_limiter.acquire()
                     status = await loop.run_in_executor(
                         None, lambda: self._client.get_order(order_id)
                     )
@@ -1007,6 +1062,7 @@ class OrderManager:
         )
         options = PartialCreateOrderOptions()
         try:
+            await self._rate_limiter.acquire()
             signed_order = await loop.run_in_executor(
                 None, lambda: self._client.create_market_order(market_args, options)
             )
@@ -1022,6 +1078,7 @@ class OrderManager:
                 pass
             logger.info("Signed market order created (pre-exec quote=%.4f): %s", pre_exec_price or 0, signed_order)
 
+            await self._rate_limiter.acquire()
             result = await loop.run_in_executor(
                 None, lambda: self._client.post_order(signed_order, OrderType.FOK)
             )
@@ -1034,6 +1091,7 @@ class OrderManager:
             # Priority 1: query order status — most reliable source of fill price
             if order_id:
                 try:
+                    await self._rate_limiter.acquire()
                     status = await loop.run_in_executor(None, lambda: self._client.get_order(order_id))
                     if status:
                         actual_price = float(

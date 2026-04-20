@@ -38,7 +38,7 @@ import engine.strategy_loader as _scfg
 from config import validate_live_credentials
 from engine.fee_filter import expected_value, passes_fee_filter
 from engine.probability import calculate_probability
-from execution.order_manager import OrderManager
+from execution.order_manager import OrderManager, _fetch_ask_depth_usdc, _fetch_bid_depth_shares
 from market.discovery import discovery_loop
 from market.state import MarketState
 from monitor.kill_switch import kill_switch_loop
@@ -221,7 +221,25 @@ async def sniper_loop(
                 )
             continue
 
-        should_execute, use_maker = passes_fee_filter(p_true, ask_price, best_bid, best_ask)
+        # ── OBI depth fetch (async, non-blocking; fails open with depth=0) ────────
+        # Fetches cumulative USDC depth within the slippage band on each side
+        # so the fee_filter can compute OBI and block toxic order flow.
+        bid_depth_usdc = 0.0
+        ask_depth_usdc = 0.0
+        if _scfg.use_obi_filter():
+            try:
+                max_price = round(ask_price + 0.03, 4)  # same slippage band as entry guardrail
+                ask_depth_usdc, _ = await _fetch_ask_depth_usdc(token_id, max_price)
+                bid_min = max(0.01, round(best_bid - 0.03, 4))
+                _, bid_depth_usdc = await _fetch_bid_depth_shares(token_id, bid_min)
+            except Exception:
+                pass  # fail open — missing depth data never blocks a trade
+
+        should_execute, use_maker = passes_fee_filter(
+            p_true, ask_price, best_bid, best_ask,
+            bid_depth_usdc=bid_depth_usdc,
+            ask_depth_usdc=ask_depth_usdc,
+        )
         ev = expected_value(p_true, ask_price, is_maker=use_maker)
 
         log_decision(

@@ -55,6 +55,7 @@ def _defaults() -> dict:
         "indicators":  {
             "use_momentum": False, "momentum_lookback_seconds": 30,
             "momentum_min_pct": 0.05, "use_spread_filter": False, "max_poly_spread": 0.10,
+            "use_obi_filter": False, "obi_min_ratio": 0.35,
         },
     }
 
@@ -125,3 +126,10 @@ def strategy_name() -> str:
     if exp_id:
         return f"v{version}-{str(exp_id)[-8:]}"
     return f"v{version}"
+
+def use_obi_filter() -> bool:
+    return bool(_load().get("indicators", {}).get("use_obi_filter", False))
+
+def obi_min_ratio() -> float:
+    """Minimum OBI ratio to allow entry. Default 0.35 (bid must be ≥35% of total book depth)."""
+    return float(_load().get("indicators", {}).get("obi_min_ratio", 0.35))

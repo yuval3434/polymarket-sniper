@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 HEARTBEAT_INTERVAL  = 2.0   # seconds between PING frames (must be < kill switch threshold)
 _REST_POLL_INTERVAL = 1.0   # seconds between REST order book polls
+_STABLE_TICKS       = 3     # consecutive good REST ticks required to clear kill switch
 
 
 async def polymarket_stream_loop(state: MarketState) -> None:
@@ -34,13 +35,18 @@ async def polymarket_stream_loop(state: MarketState) -> None:
 
 
 async def _rest_book_loop(state: MarketState) -> None:
-    """Poll Polymarket REST API for best bid/ask every second."""
+    """
+    Poll Polymarket REST API for best bid/ask every second.
+
+    Auto-recovery: when kill_switch_active is True and source is "polymarket",
+    this loop continues polling and counts _STABLE_TICKS consecutive clean fetches.
+    On reaching the threshold it clears the kill switch, mirroring Binance recovery.
+    """
     async with aiohttp.ClientSession() as session:
         last_logged_tokens: tuple[str, str] = ("", "")
+        stable_count = 0
         while True:
-            if state.kill_switch_active:
-                await asyncio.sleep(0.5)
-                continue
+            # Keep polling even during kill switch — REST is our recovery heartbeat
             up_id   = state.up_token_id
             down_id = state.down_token_id
             if up_id and down_id:
@@ -52,6 +58,27 @@ async def _rest_book_loop(state: MarketState) -> None:
                     state.down_best_bid = down_bid
                     state.down_best_ask = down_ask
                     state.poly_last_update = time.monotonic()
+
+                    # ── Auto-recovery: clear polymarket kill switch after stable ticks ──
+                    if state.kill_switch_active and state.kill_switch_source == "polymarket":
+                        stable_count += 1
+                        logger.debug(
+                            "Polymarket REST stable tick %d/%d — waiting to disengage kill switch",
+                            stable_count, _STABLE_TICKS,
+                        )
+                        if stable_count >= _STABLE_TICKS:
+                            state.kill_switch_active = False
+                            state.kill_switch_source = ""
+                            state.kill_switch_reason = ""
+                            stable_count = 0
+                            logger.info(
+                                "Polymarket feed stabilized (REST). Kill Switch disengaged. "
+                                "Trading resumed after %d consecutive clean ticks.",
+                                _STABLE_TICKS,
+                            )
+                    else:
+                        stable_count = 0  # reset counter whenever we're not recovering
+
                     if (up_id, down_id) != last_logged_tokens:
                         logger.info(
                             "Orderbook REST: UP bid=%.4f ask=%.4f | DOWN bid=%.4f ask=%.4f",
@@ -65,6 +92,7 @@ async def _rest_book_loop(state: MarketState) -> None:
                         )
                 except Exception as exc:
                     logger.warning("REST book poll error: %s", exc)
+                    stable_count = 0  # reset on any fetch failure
             await asyncio.sleep(_REST_POLL_INTERVAL)
 
 
@@ -145,9 +173,9 @@ async def _ws_loop(state: MarketState) -> None:
                 "Polymarket WS error: %s — reconnecting in %.1fs", exc, backoff
             )
 
-        if state.kill_switch_active:
-            return
-
+        # Always reconnect — REST loop handles kill-switch recovery independently.
+        # Do NOT return here: the WS must keep trying so it resumes real-time updates
+        # as soon as the feed comes back, even while REST is serving as the fallback.
         await asyncio.sleep(backoff)
         backoff = min(backoff * 2, RECONNECT_BACKOFF_MAX)
 
