@@ -995,13 +995,27 @@ class OrderManager:
         This prevents book-sweeping that destroys average entry price.
         """
         # ── Precision clamp — Polymarket API hard limits ──────────────────────
-        # maker amount (USDC spent)   → max 2 decimal places
-        # taker amount (shares bought) → max 4 decimal places
-        # Floating-point arithmetic on raw bet sizes produces values like
-        # 12.739100000003 which the API rejects.  Round both to their allowed
-        # precision BEFORE building the order.
-        amount_usdc = round(amount_usdc, 2)                        # 2dp USDC
-        size_shares = round(amount_usdc / signal_price, 4)         # 4dp shares
+        # For a BUY order the SDK computes:
+        #   taker_amount = size_shares          (what we receive) → max 4dp
+        #   maker_amount = max_price * size     (USDC we spend)   → max 2dp
+        #
+        # The ORDER price is max_price, NOT signal_price — so size must be
+        # derived from max_price to keep max_price × size clean.
+        # Use Decimal to avoid IEEE-754 drift (e.g. 0.616 * 20.6818 → 12.73999..)
+        from decimal import Decimal, ROUND_DOWN
+        _maxp_d   = Decimal(str(max_price))
+        _usdc_d   = Decimal(str(round(amount_usdc, 2)))
+        # Floor shares to 4dp so we never overspend
+        _size_d   = (_usdc_d / _maxp_d).quantize(Decimal("0.0001"), rounding=ROUND_DOWN)
+        # Re-derive maker USDC from the floored share count (floor → conservative)
+        _maker_d  = (_maxp_d * _size_d).quantize(Decimal("0.01"),   rounding=ROUND_DOWN)
+        size_shares = float(_size_d)
+        amount_usdc = float(_maker_d)   # corrected; used for fill tracking downstream
+        logger.debug(
+            "IOC precision clamp: signal=$%.4f max=$%.4f "
+            "usdc=%.2f shares=%.4f maker=%.2f",
+            signal_price, max_price, float(_usdc_d), size_shares, amount_usdc,
+        )
         order_args  = OrderArgs(
             token_id=token_id,
             price=max_price,
