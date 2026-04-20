@@ -590,11 +590,28 @@ class OrderManager:
             shares_sold   = max(0.0, balance_before - balance_after)
 
             if shares_sold > 0.001:
+                actual_price = floor_price
+                order_id = (result or {}).get("orderID") or (result or {}).get("id", "") if result else ""
+                if order_id:
+                    try:
+                        status = await loop.run_in_executor(
+                            None, lambda: self._client.get_order(order_id)
+                        )
+                        avg_p = float(
+                            (status or {}).get("averagePrice") or
+                            (status or {}).get("avgPrice") or
+                            (status or {}).get("price") or 0
+                        )
+                        if avg_p > 0:
+                            actual_price = avg_p
+                    except Exception as exc:
+                        logger.debug("get_order fill price fallback failed: %s", exc)
+
                 logger.info(
                     "IOC sell confirmed: %.4f shares @ $%.4f (balance %.4f → %.4f)",
-                    shares_sold, floor_price, balance_before, balance_after,
+                    shares_sold, actual_price, balance_before, balance_after,
                 )
-                return True, floor_price, shares_sold
+                return True, actual_price, shares_sold
 
             logger.warning(
                 "IOC sell: no fill (balance %.4f → %.4f) | floor=%.4f",
@@ -649,10 +666,26 @@ class OrderManager:
         shares_sold   = max(0.0, balance_before - balance_after)
 
         if shares_sold > 0.001:
+            actual_price = bid_price
+            if order_id:
+                try:
+                    status = await loop.run_in_executor(
+                        None, lambda: self._client.get_order(order_id)
+                    )
+                    avg_p = float(
+                        (status or {}).get("averagePrice") or
+                        (status or {}).get("avgPrice") or
+                        (status or {}).get("price") or 0
+                    )
+                    if avg_p > 0:
+                        actual_price = avg_p
+                except Exception as exc:
+                    logger.debug("get_order fill price fallback failed: %s", exc)
+
             logger.info(
-                "Passive sell filled: %.4f shares @ $%.4f", shares_sold, bid_price
+                "Passive sell filled: %.4f shares @ $%.4f", shares_sold, actual_price
             )
-            return True, bid_price, ""   # filled — no pending order to cancel
+            return True, actual_price, ""   # filled — no pending order to cancel
 
         logger.info(
             "Passive sell unfilled after %.1fs — caller will cancel and switch to IOC",
@@ -799,11 +832,27 @@ class OrderManager:
             try:
                 remaining = await _get_balance()
                 if remaining < 0.01:
+                    actual_price = current_price
+                    if prev_order_id:
+                        try:
+                            status = await loop.run_in_executor(
+                                None, lambda: self._client.get_order(prev_order_id)
+                            )
+                            avg_p = float(
+                                (status or {}).get("averagePrice") or
+                                (status or {}).get("avgPrice") or
+                                (status or {}).get("price") or 0
+                            )
+                            if avg_p > 0:
+                                actual_price = avg_p
+                        except Exception as exc:
+                            logger.debug("get_order fill price fallback failed: %s", exc)
+
                     logger.info(
-                        "SELL CONFIRMED on attempt %d: balance=%.6f (dust) | exit_price=%.4f",
-                        attempt, remaining, current_price,
+                        "SELL CONFIRMED on attempt %d: balance=%.6f (dust) | actual_exit_price=%.4f",
+                        attempt, remaining, actual_price,
                     )
-                    return True, current_price
+                    return True, actual_price
                 else:
                     logger.warning(
                         "SELL attempt %d UNCONFIRMED: balance still %.6f shares — "
