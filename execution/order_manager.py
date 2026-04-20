@@ -502,12 +502,14 @@ class OrderManager:
 
         # ── Verify actual on-chain balance ───────────────────────────────
         balance = await self._get_token_balance(token_id, loop)
+            
+        size_shares = balance
         logger.info(
             "EXIT [%s]: on-chain balance=%.4f (theoretical=%.4f) | "
             "bid=%.4f floor=%.4f",
             exit_type, balance, size_shares, bid_price, floor_price,
         )
-        if balance < 0.001:
+        if balance < 0.1:
             logger.info("Position already closed on-chain — no sell needed")
             return True, bid_price
         size_shares = balance  # always exit what we actually hold
