@@ -615,12 +615,22 @@ class OrderManager:
             ok, price, _ = await self._ioc_sell(token_id, size_shares, floor_price, loop)
             if ok:
                 return True, price
-            # IOC got zero fill — widen by 2× and retry once
+            # IOC got zero fill — FAK orders free the balance immediately but the
+            # API-side lock can persist for ~1-2s. Wait, re-query the real balance,
+            # then retry with a wider floor price.
             wider_floor = max(0.01, round(floor_price - max_slippage, 4))
             logger.warning(
-                "IOC sell zero fill at $%.4f — retrying with wider floor $%.4f",
+                "IOC sell zero fill at $%.4f — waiting 1.5s for balance unlock, "
+                "then retrying at wider floor $%.4f",
                 floor_price, wider_floor,
             )
+            await asyncio.sleep(1.5)   # let API-side balance lock expire
+            # Re-query actual balance (may have settled to a slightly different value)
+            fresh_balance = await self._get_token_balance(token_id, loop)
+            if fresh_balance < 0.01:
+                logger.info("Position already closed after FAK zero-fill settlement — no retry needed")
+                return True, bid_price
+            size_shares = round(fresh_balance, 4)  # sell exactly what we hold
             ok2, price2, _ = await self._ioc_sell(token_id, size_shares, wider_floor, loop)
             return ok2, price2 if ok2 else bid_price
 
@@ -1080,6 +1090,23 @@ class OrderManager:
         )
         options = PartialCreateOrderOptions()
         try:
+            # Snapshot balance BEFORE the fill so we can compute the exact delta
+            _bal_before = 0.0
+            try:
+                from py_clob_client.clob_types import BalanceAllowanceParams, AssetType
+                await self._rate_limiter.acquire()
+                _b = await loop.run_in_executor(
+                    None,
+                    lambda: self._client.get_balance_allowance(
+                        params=BalanceAllowanceParams(
+                            asset_type=AssetType.CONDITIONAL, token_id=token_id
+                        )
+                    ),
+                )
+                _bal_before = int((_b or {}).get("balance", 0)) / 1_000_000
+            except Exception:
+                pass  # non-fatal; falls back to absolute balance below
+
             # Two-step: create signed limit order, then post as IOC
             signed_order = await self._sdk_call(
                 lambda: self._client.create_order(order_args, options)
@@ -1094,7 +1121,10 @@ class OrderManager:
             _check_response(result, "ioc_limit")
             order_id = (result or {}).get("orderID") or (result or {}).get("id", "") if result else ""
 
-            # ── Verify actual fill via on-chain token balance ─────────────────
+            # ── Verify actual fill via on-chain token balance delta ────────────
+            # CRITICAL: read balance AFTER fill and subtract the pre-order snapshot.
+            # Reading absolute balance would include tokens already held from prior
+            # trades on the same market, producing a wildly wrong price (e.g. $4.36).
             actual_price:  float | None = None
             actual_shares: float | None = None
             fill_usdc:     float        = 0.0
@@ -1110,14 +1140,27 @@ class OrderManager:
                         )
                     ),
                 )
-                shares_held = int((resp or {}).get("balance", 0)) / 1e6
-                if shares_held > 0.001:
-                    actual_shares = shares_held
-                    actual_price  = round(amount_usdc / shares_held, 6)
-                    fill_usdc     = actual_price * shares_held
+                bal_after   = int((resp or {}).get("balance", 0)) / 1_000_000
+                # Use delta (after - before) so we see only what THIS order filled.
+                # Absolute balance includes tokens held from prior trades on the same
+                # market, which would inflate shares_held and produce $4.36-style prices.
+                delta_shares = round(max(0.0, bal_after - _bal_before), 6)
+                if delta_shares > 0.001:
+                    actual_shares = delta_shares
+                    actual_price  = round(amount_usdc / delta_shares, 6)
+                    fill_usdc     = amount_usdc          # exact GCD-computed USDC spent
                     logger.info(
-                        "IOC fill verified: %.4f shares → $%.4f avg = $%.2f USDC",
-                        shares_held, actual_price, fill_usdc,
+                        "IOC fill verified: Δ%.4f shares (%.4f→%.4f) → $%.4f avg = $%.2f USDC",
+                        delta_shares, _bal_before, bal_after, actual_price, fill_usdc,
+                    )
+                elif bal_after > 0.001 and _bal_before == 0.0:
+                    # Pre-snapshot failed — only safe to use absolute if we had nothing before
+                    actual_shares = round(bal_after, 6)
+                    actual_price  = round(amount_usdc / actual_shares, 6)
+                    fill_usdc     = amount_usdc
+                    logger.info(
+                        "IOC fill (abs fallback): %.4f shares → $%.4f avg = $%.2f USDC",
+                        actual_shares, actual_price, fill_usdc,
                     )
             except Exception as exc:
                 logger.debug("Balance verification after IOC failed: %s", exc)
