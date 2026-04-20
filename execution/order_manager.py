@@ -507,10 +507,16 @@ class OrderManager:
             "bid=%.4f floor=%.4f",
             exit_type, balance, size_shares, bid_price, floor_price,
         )
-        if balance < 0.001:
-            logger.info("Position already closed on-chain — no sell needed")
+        # Dust guard: raise threshold to 0.01 shares (min viable sell order).
+        # A balance of 0.001–0.009 shares can slip through and produce a
+        # taker_amount that rounds to 0 inside the SDK's int() conversion.
+        if balance < 0.01:
+            logger.info(
+                "Position closed (on-chain balance %.6f < 0.01 dust threshold) — no sell needed",
+                balance,
+            )
             return True, bid_price
-        size_shares = balance  # always exit what we actually hold
+        size_shares = round(balance, 4)  # canonicalise to 4dp before any math
 
         # ── Bid depth pre-check ──────────────────────────────────────────
         avail_shares, avail_usdc = await _fetch_bid_depth_shares(token_id, floor_price)
@@ -631,10 +637,30 @@ class OrderManager:
         Fills at any bid >= floor_price; cancels remainder immediately.
         Returns (success, exit_price, shares_sold).
         """
+        # ── Pre-flight validation ───────────────────────────────────────────────
+        # Round to 4 decimal places (matching Polymarket’s 4-dp price tick).
+        # Using 6dp causes IEEE 754 drift: e.g. 21.7391 becomes
+        # 21.739100000000003 in float64, which makes the SDK’s
+        # int(size * 1e6 * price) truncate to the wrong integer.
+        size_sell = round(shares_to_sell, 4)
+        # Minimum USDC floor: if price × size ≤ 0 the API returns
+        # "maker and taker amount must be higher than 0".
+        usdc_value = round(size_sell * floor_price, 6)
+        if size_sell <= 0 or usdc_value <= 0:
+            logger.error(
+                "IOC sell pre-flight FAILED: size=%.6f floor=%.4f usdc_value=%.6f — "
+                "skipping order (would produce invalid API amounts)",
+                shares_to_sell, floor_price, usdc_value,
+            )
+            return False, 0.0, 0.0
+        logger.debug(
+            "IOC sell pre-flight OK: size=%.4f floor=%.4f usdc_value=%.4f",
+            size_sell, floor_price, usdc_value,
+        )
         order_args = OrderArgs(
             token_id=token_id,
             price=floor_price,
-            size=round(shares_to_sell, 6),
+            size=size_sell,      # 4dp — clean integer conversion in SDK
             side="SELL",
         )
         options = PartialCreateOrderOptions()
@@ -702,7 +728,7 @@ class OrderManager:
         order_args = OrderArgs(
             token_id=token_id,
             price=bid_price,
-            size=round(size_shares, 6),
+            size=round(size_shares, 4),  # 4dp — matches Polymarket tick precision
             side="SELL",
         )
         order_id = ""
@@ -758,7 +784,14 @@ class OrderManager:
         return False, 0.0, order_id   # caller must cancel this
 
     async def _get_token_balance(self, token_id: str, loop) -> float:
-        """Return on-chain conditional token balance in shares (handles 1e6 decimals)."""
+        """
+        Return on-chain conditional token balance in shares (handles 1e6 decimals).
+
+        Uses integer division (// 1) then divides by 1_000_000 (Python int, not
+        float 1e6) to avoid IEEE 754 drift.  Result is rounded to 4 decimal
+        places so it feeds cleanly into 4dp OrderArgs.size without carrying
+        floating-point noise downstream.
+        """
         try:
             from py_clob_client.clob_types import BalanceAllowanceParams, AssetType
             await self._rate_limiter.acquire()
@@ -770,7 +803,8 @@ class OrderManager:
                     )
                 ),
             )
-            return int((resp or {}).get("balance", 0)) / 1e6
+            raw = int((resp or {}).get("balance", 0))   # micro-shares (integer)
+            return round(raw / 1_000_000, 4)             # 4dp float — no float drift
         except Exception as exc:
             logger.warning("Token balance query failed: %s", exc)
             return 0.0
