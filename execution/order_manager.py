@@ -196,6 +196,26 @@ class OrderManager:
         # Rate limiter shared across all SDK call sites — applies in live mode only
         self._rate_limiter = _RateLimiter(_RATE_LIMIT_CALLS_PER_SEC)
 
+
+    async def _sdk_call(self, func):
+        """Execute a py-clob-client lambda function with automatic retry for 425 'service not ready'."""
+        loop = __import__('asyncio').get_event_loop()
+        max_attempts = 4
+        for attempt in range(1, max_attempts + 1):
+            await self._rate_limiter.acquire()
+            try:
+                return await loop.run_in_executor(None, func)
+            except Exception as exc:
+                exc_str = str(exc).lower()
+                if "425" in exc_str or "service not ready" in exc_str:
+                    if attempt < max_attempts:
+                        delay = 0.5 * (2 ** (attempt - 1))
+                        import logging
+                        logging.getLogger(__name__).warning("API 425 'service not ready' — waiting %.2fs and retrying (attempt %d/%d)", delay, attempt, max_attempts)
+                        await __import__('asyncio').sleep(delay)
+                        continue
+                raise
+
     async def cancel_all(self) -> None:
         if self._client is None:
             return
@@ -619,13 +639,11 @@ class OrderManager:
         options = PartialCreateOrderOptions()
         try:
             balance_before = await self._get_token_balance(token_id, loop)
-            await self._rate_limiter.acquire()
-            signed = await loop.run_in_executor(
-                None, lambda: self._client.create_order(order_args, options)
+            signed = await self._sdk_call(
+                lambda: self._client.create_order(order_args, options)
             )
-            await self._rate_limiter.acquire()
-            result = await loop.run_in_executor(
-                None, lambda: self._client.post_order(signed, OrderType.FAK)
+            result = await self._sdk_call(
+                lambda: self._client.post_order(signed, OrderType.FAK)
             )
             _check_response(result, f"ioc_sell@{floor_price:.4f}")
             await asyncio.sleep(0.3)   # brief settlement pause
@@ -689,12 +707,10 @@ class OrderManager:
         order_id = ""
         try:
             balance_before = await self._get_token_balance(token_id, loop)
-            await self._rate_limiter.acquire()
-            result = await loop.run_in_executor(
-                None,
+            result = await self._sdk_call(
                 lambda: self._client.create_and_post_order(
                     order_args, PartialCreateOrderOptions()
-                ),
+                )
             )
             _check_response(result, "passive_sell")
             order_id = (result or {}).get("orderID") or (result or {}).get("id", "")
@@ -952,17 +968,15 @@ class OrderManager:
         options = PartialCreateOrderOptions()
         try:
             # Two-step: create signed limit order, then post as IOC
-            await self._rate_limiter.acquire()
-            signed_order = await loop.run_in_executor(
-                None, lambda: self._client.create_order(order_args, options)
+            signed_order = await self._sdk_call(
+                lambda: self._client.create_order(order_args, options)
             )
             logger.info(
                 "IOC limit order signed: %.4f shares @ max $%.4f (signal $%.4f)",
                 size_shares, max_price, signal_price,
             )
-            await self._rate_limiter.acquire()
-            result = await loop.run_in_executor(
-                None, lambda: self._client.post_order(signed_order, OrderType.FAK)
+            result = await self._sdk_call(
+                lambda: self._client.post_order(signed_order, OrderType.FAK)
             )
             _check_response(result, "ioc_limit")
             order_id = (result or {}).get("orderID") or (result or {}).get("id", "") if result else ""
@@ -1062,9 +1076,8 @@ class OrderManager:
         )
         options = PartialCreateOrderOptions()
         try:
-            await self._rate_limiter.acquire()
-            signed_order = await loop.run_in_executor(
-                None, lambda: self._client.create_market_order(market_args, options)
+            signed_order = await self._sdk_call(
+                lambda: self._client.create_market_order(market_args, options)
             )
             # Pre-execution quote price from signed order (approximate — replaced by fill data below)
             pre_exec_price = None
@@ -1078,9 +1091,8 @@ class OrderManager:
                 pass
             logger.info("Signed market order created (pre-exec quote=%.4f): %s", pre_exec_price or 0, signed_order)
 
-            await self._rate_limiter.acquire()
-            result = await loop.run_in_executor(
-                None, lambda: self._client.post_order(signed_order, OrderType.FOK)
+            result = await self._sdk_call(
+                lambda: self._client.post_order(signed_order, OrderType.FOK)
             )
             _check_response(result, "market")
             order_id = result.get("orderID") or result.get("id", "") if result else ""
