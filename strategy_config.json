@@ -16,7 +16,7 @@
     "window_stop_seconds": 2,
     "early_cutoff_seconds": 180,
     "early_z_score": 0.3,
-    "min_z_score": 0.8
+    "min_z_score": 0.6
   },
   "fee_filter": {
     "safety_buffer": 0.03,
