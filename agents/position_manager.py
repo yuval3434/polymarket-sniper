@@ -67,8 +67,8 @@ logger = logging.getLogger(__name__)
 
 # ── Trailing stop parameters ───────────────────────────────────────────────
 INITIAL_STOP_MULT      = 0.50   # initial stop = entry × 0.50  (−50% loss)
-TRAIL_ACTIVATION_MULT  = 1.15   # activate trail when peak_bid >= entry * 1.15
-TRAIL_DISTANCE_MULT    = 0.75   # trailing_stop = peak_bid * 0.75  (25% below peak)
+TRAIL_ACTIVATION_MULT  = 1.25   # activate trail when peak_bid >= entry * 1.15
+TRAIL_DISTANCE_MULT    = 0.70   # trailing_stop = peak_bid * 0.75  (25% below peak)
 
 # ── Hold-to-expiry parameters ──────────────────────────────────────────────
 HTE_BID_THRESHOLD   = 0.85   # bid must be above this to trigger HTE
