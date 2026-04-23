@@ -43,7 +43,7 @@ _CLAIM_GIVE_UP_SECS   = 7200      # stop retrying after 2 hours
 _PENDING_CLAIMS_FILE  = os.path.join(os.path.dirname(os.path.dirname(__file__)), "pending_claims.json")
 
 # ── Entry execution guardrails ─────────────────────────────────────────────
-_MAX_SLIPPAGE_CENTS  = 0.03   # IOC limit price = signal_ask + 3¢ — never sweep beyond this
+_MAX_SLIPPAGE_CENTS  = 0.05  # IOC limit price = signal_ask + 3¢ — never sweep beyond this
 _MIN_LIQUIDITY_USDC  = 5.0    # reject trade if book depth < $5 within slippage band
 _MIN_FILL_USDC       = 3.0    # warn as tiny fill if IOC settles < $3
 
