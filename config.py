@@ -92,6 +92,10 @@ VOL_WINDOW_SECONDS: int = 30
 # --- Paper trade output ---
 PAPER_TRADE_CSV: str = "paper_trades.csv"
 
+# --- Telegram notifications (optional) ---
+TELEGRAM_BOT_TOKEN: str = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID: str   = os.environ.get("TELEGRAM_CHAT_ID", "")
+
 # --- Cross-machine trade sync ---
 # Comma-separated list of peer bot URLs, e.g. "http://1.2.3.4:8765,http://5.6.7.8:8765"
 REMOTE_BOT_PEERS: list[str] = [

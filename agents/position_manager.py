@@ -58,6 +58,7 @@ from core.database import (
     async_resolve_shadow_trades_for_market,
 )
 from core.pnl_tracker import PnLTracker, TradeRecord
+from core.telegram_notify import notify_bet_placed, notify_trade_closed
 from core.risk_manager import RiskManager
 from core.tracker import TradeEntry, record_trade as _tracker_record
 import engine.strategy_loader as _scfg
@@ -313,6 +314,17 @@ class PositionManager:
             token_side, market_id, entry_price, size_usdc, p_true, z_score,
             pos.trailing_stop_price, " [DRY RUN]" if is_dry_run else " [LIVE]",
         )
+        notify_bet_placed(
+            token_side=token_side,
+            market_id=market_id,
+            entry_price=entry_price,
+            size_usdc=size_usdc,
+            p_true=p_true,
+            z_score=z_score,
+            stop_price=pos.trailing_stop_price,
+            is_dry_run=is_dry_run,
+        )
+
         pending_note = "  ⏳ Awaiting fill confirmation — entry will update\n" if not is_dry_run else ""
         print(
             f"\n{'═'*62}\n"
@@ -545,6 +557,22 @@ class PositionManager:
         )
         self.pnl_tracker.record(record)
         self.risk_manager.record_trade_result(pnl_usd, win)
+
+        notify_trade_closed(
+            token_side=pos.token_side,
+            exit_type=exit_type,
+            entry_price=pos.entry_price,
+            exit_price=exit_price,
+            pnl_usd=pnl_usd,
+            pnl_pct=pnl_pct,
+            rr=rr,
+            size_usdc=pos.size_usdc,
+            win=win,
+            session_wins=self.pnl_tracker.session.wins,
+            session_losses=self.pnl_tracker.session.losses,
+            session_pnl=self.pnl_tracker.session.total_pnl_usd,
+            is_dry_run=pos.is_dry_run,
+        )
 
         try:
             _tracker_record(TradeEntry(
