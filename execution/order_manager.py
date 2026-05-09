@@ -127,7 +127,8 @@ class OrderManager:
         Taker path : immediate market order (FOK) via create_market_order.
         """
         usdc   = size_usdc if size_usdc is not None else MAX_POSITION_USDC
-        shares = usdc / ask_price
+        # Round to 4 decimal places to prevent "invalid signature" errors from SDK float precision
+        shares = round(usdc / ask_price, 4)
 
         if self.dry_run or self._client is None:
             logger.info(
