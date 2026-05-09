@@ -153,8 +153,10 @@ def backtest(params: dict, candles: list[Candle]) -> BacktestResult:
     use_momentum = params["indicators"]["use_momentum"]
     momentum_min = params["indicators"]["momentum_min_pct"]
 
-    taker_fee = 0.018
-    maker_rebate = 0.002
+    # V2: fee rate is market-specific and fetched live via get_clob_market_info().
+    # Offline backtests have no live CLOB client, so use 0.0 (no-fee assumption).
+    # This makes backtests slightly optimistic; factor in ~1-2% when interpreting results.
+    fee_rate = 0.0
 
     trades = 0
     wins = 0
@@ -197,9 +199,9 @@ def backtest(params: dict, candles: list[Candle]) -> BacktestResult:
         # Fee filter
         if ask >= max_ask:
             continue
-        fee = taker_fee * ask
+        fee = fee_rate * ask
         ev = (float(norm.cdf(abs_Z))) * (1.0 - ask - fee) + (1 - float(norm.cdf(abs_Z))) * (-(ask + fee))
-        gross = 1.0 - ask * (1 + taker_fee)
+        gross = 1.0 - ask * (1 + fee_rate)
         if ev <= safety_buf or gross <= safety_buf:
             continue
 

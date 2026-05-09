@@ -5,27 +5,28 @@ from config import (
     ETH_PRIVATE_KEY,
     MAX_POSITION_USDC,
     POLY_API_KEY,
+    POLY_BUILDER_CODE,
     POLY_FUNDER_ADDRESS,
     POLY_HOST,
     POLY_PASSPHRASE,
     POLY_SECRET,
     SIGNATURE_TYPE,
 )
-from engine.fee_filter import taker_fee_bps
 from market.state import MarketState
 
 logger = logging.getLogger(__name__)
 
 try:
-    from py_clob_client.client import ClobClient
-    from py_clob_client.clob_types import (
+    from py_clob_client_v2.client import ClobClient
+    from py_clob_client_v2.clob_types import (
         ApiCreds,
+        BuilderConfig,
         MarketOrderArgs,
         OrderArgs,
         OrderType,
         PartialCreateOrderOptions,
     )
-    from py_clob_client.constants import POLYGON
+    from py_clob_client_v2.constants import POLYGON
     _SDK_AVAILABLE = True
 except ImportError:
     _SDK_AVAILABLE = False
@@ -57,7 +58,7 @@ class OrderManager:
         self._client = None
 
         if not dry_run and _SDK_AVAILABLE:
-            # Mainnet: host=https://clob.polymarket.com  chain_id=137 (POLYGON)
+            builder_cfg = BuilderConfig(builder_code=POLY_BUILDER_CODE) if POLY_BUILDER_CODE else None
             self._client = ClobClient(
                 host=POLY_HOST,
                 key=ETH_PRIVATE_KEY,
@@ -69,10 +70,12 @@ class OrderManager:
                 ),
                 funder=POLY_FUNDER_ADDRESS,
                 signature_type=SIGNATURE_TYPE,
+                builder_config=builder_cfg,
             )
             logger.info(
-                "ClobClient initialized — LIVE mode | host=%s chain_id=%s sig_type=%s funder=%s",
+                "ClobClient initialized — LIVE mode | host=%s chain_id=%s sig_type=%s funder=%s builder=%s",
                 POLY_HOST, POLYGON, SIGNATURE_TYPE, POLY_FUNDER_ADDRESS,
+                "set" if builder_cfg else "unset",
             )
         elif dry_run:
             logger.info("OrderManager in paper mode — no real orders will be placed")
@@ -114,6 +117,7 @@ class OrderManager:
         state: MarketState,
         size_usdc: float | None = None,
         p_true: float = 0.5,
+        user_usdc_balance: float = 0,
     ) -> dict | None:
         """
         Execute a snipe order.
@@ -135,13 +139,10 @@ class OrderManager:
 
         loop = asyncio.get_event_loop()
 
-        fee_bps = taker_fee_bps(p_true)
-
         if use_maker:
             maker_price = round(ask_price - 0.001, 4)
             order_args  = OrderArgs(
                 token_id=token_id, price=maker_price, size=shares, side=side,
-                fee_rate_bps=fee_bps,
             )
             options = PartialCreateOrderOptions()
             try:
@@ -158,16 +159,16 @@ class OrderManager:
                 if (status_resp or {}).get("status") not in ("MATCHED", "FILLED"):
                     logger.info("Maker not filled — cancelling, falling back to market order")
                     await loop.run_in_executor(None, lambda: self._client.cancel(order_id))
-                    result = await self._place_market_order(token_id, side, usdc, loop, fee_bps)
+                    result = await self._place_market_order(token_id, side, usdc, loop, user_usdc_balance)
                 else:
                     result = status_resp
                 await self.verify_trade(order_id)
                 return result
             except Exception as exc:
                 logger.error("Maker order failed: %s — falling back to market order", exc)
-                return await self._place_market_order(token_id, side, usdc, loop, fee_bps)
+                return await self._place_market_order(token_id, side, usdc, loop, user_usdc_balance)
         else:
-            return await self._place_market_order(token_id, side, usdc, loop, fee_bps)
+            return await self._place_market_order(token_id, side, usdc, loop, user_usdc_balance)
 
     async def sell(
         self,
@@ -186,7 +187,7 @@ class OrderManager:
 
         # Query actual on-chain balance — may differ from theoretical due to partial fills / fees
         try:
-            from py_clob_client.clob_types import BalanceAllowanceParams, AssetType
+            from py_clob_client_v2.clob_types import BalanceAllowanceParams, AssetType
             bal_resp = await loop.run_in_executor(
                 None,
                 lambda: self._client.get_balance_allowance(
@@ -224,14 +225,14 @@ class OrderManager:
             return None
 
     async def _place_market_order(
-        self, token_id: str, side: str, amount_usdc: float, loop, fee_bps: int = 0
+        self, token_id: str, side: str, amount_usdc: float, loop, user_usdc_balance: float = 0
     ) -> dict | None:
         """Market order: create (sign) then post as FOK. Amount in USDC."""
         market_args = MarketOrderArgs(
             token_id=token_id,
             amount=amount_usdc,
             side=side,
-            fee_rate_bps=fee_bps,
+            user_usdc_balance=user_usdc_balance,
         )
         options = PartialCreateOrderOptions()
         try:

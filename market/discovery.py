@@ -88,11 +88,42 @@ def _parse_market(data: dict, state: MarketState) -> bool:
         return False
 
 
-async def discovery_loop(state: MarketState) -> None:
+async def _fetch_market_fee_params(clob_client, condition_id: str, loop) -> tuple[float, float]:
+    """
+    Fetch V2 fee parameters (fd.r, fd.e) from get_clob_market_info.
+    Returns (fee_rate_r, fee_rate_e) — the coefficients for the dynamic fee formula:
+        fee_per_share = fee_rate_r * (ask * (1 - ask)) ** fee_rate_e
+    Returns (0.0, 0.0) on failure.
+    """
+    try:
+        info = await loop.run_in_executor(
+            None, lambda: clob_client.get_clob_market_info(condition_id)
+        )
+        fd = info.get("fd") or {}
+        r = float(fd.get("r", 0.0))
+        e = float(fd.get("e", 0.0))
+        # Log representative fee at ask=0.50 (maximum — most conservative estimate)
+        representative = r * (0.5 * 0.5) ** e if (r > 0 and e >= 0) else 0.0
+        logger.info(
+            "Market fee params: fd=%s  representative_fee@0.5=%.4f (%.2f%%)",
+            fd, representative, representative * 100,
+        )
+        return r, e
+    except Exception as exc:
+        logger.warning("Could not fetch market fee info: %s — defaulting to 0.0", exc)
+        return 0.0, 0.0
+
+
+async def discovery_loop(state: MarketState, clob_client=None) -> None:
     """
     Runs continuously. Discovers the active 5-minute BTC market and
     refreshes state at each 5-minute boundary.
+
+    If clob_client is provided (live mode), fetches the V2 taker fee rate
+    via get_clob_market_info() after each successful discovery and caches it
+    in state.taker_fee_rate.
     """
+    loop = asyncio.get_event_loop()
     async with aiohttp.ClientSession() as session:
         while True:
             # Try current boundary first, then next
@@ -103,6 +134,10 @@ async def discovery_loop(state: MarketState) -> None:
                 data = await _fetch_market(session, slug)
                 if data:
                     _parse_market(data, state)
+                    if clob_client and state.condition_id:
+                        state.fee_rate_r, state.fee_rate_e = await _fetch_market_fee_params(
+                            clob_client, state.condition_id, loop
+                        )
                     break
             else:
                 logger.error("Could not discover active BTC 5-min market — will retry next cycle")

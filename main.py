@@ -147,7 +147,7 @@ async def sniper_loop(
         # When up_ask + down_ask < 1 - fees, buying both sides and merging
         # yields risk-free profit. Log it; execution requires merge_positions() impl.
         if state.up_best_ask > 0 and state.down_best_ask > 0:
-            is_arb, arb_profit = check_merge_arb(state.up_best_ask, state.down_best_ask)
+            is_arb, arb_profit = check_merge_arb(state.up_best_ask, state.down_best_ask, state.fee_rate_r, state.fee_rate_e)
             if is_arb:
                 logger.info(
                     "MERGE ARB OPPORTUNITY: T-%.0fs | up=%.4f down=%.4f"
@@ -200,8 +200,8 @@ async def sniper_loop(
                 _last_price_reject_key = reject_key
             continue
 
-        should_execute, use_maker = passes_fee_filter(p_true, ask_price, best_bid, best_ask)
-        ev = expected_value(p_true, ask_price, is_maker=use_maker)
+        should_execute, use_maker = passes_fee_filter(p_true, ask_price, best_bid, best_ask, state.fee_rate_r, state.fee_rate_e)
+        ev = expected_value(p_true, ask_price, state.fee_rate_r, state.fee_rate_e, is_maker=use_maker)
 
         log_decision(
             state=state, token_side=token_side, token_id=token_id,
@@ -246,6 +246,8 @@ async def sniper_loop(
                     ask_price=ask_price, use_maker=use_maker,
                     state=state, size_usdc=bet_usdc,
                     p_true=p_true,
+                    # TODO: pass actual USDC balance so SDK can compute fee-adjusted fills
+                    # user_usdc_balance=state.usdc_balance,
                 )
             )
 
@@ -268,7 +270,7 @@ async def main(dry_run: bool) -> None:
     orchestrator.position_manager.order_manager = order_manager
 
     await orchestrator.run_all(
-        discovery_coro   = discovery_loop(state),
+        discovery_coro   = discovery_loop(state, order_manager._client),
         binance_coro     = binance_stream_loop(state),
         polymarket_coro  = polymarket_stream_loop(state),
         sniper_coro      = sniper_loop(state, order_manager, orchestrator, dry_run),

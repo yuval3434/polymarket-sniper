@@ -1,71 +1,55 @@
 """
-Fee Filter — Dynamic Taker Fee (post-Feb 18 2026 Polymarket rules)
-===================================================================
-Polymarket replaced the flat 1.8% taker fee with a probability-dependent formula:
+Fee Filter — V2 SDK-sourced Taker Fees
+=======================================
+In V2, the taker fee for each market is price-dependent. The SDK fetches two
+parameters from get_clob_market_info(condition_id):
 
-    fee_rate = 0.25 × (p × (1 − p))²
+    fd = {"r": 0.07, "e": 1, "to": True}
 
-This peaks at 1.5625% when p = 0.50 (maximum uncertainty) and falls sharply
-toward zero as the market approaches certainty:
+The per-share taker fee at a given ask price is:
 
-    p = 0.50  →  fee = 1.563%
-    p = 0.70  →  fee = 0.709%
-    p = 0.85  →  fee = 0.141%
-    p = 0.92  →  fee = 0.037%
-    p = 0.95  →  fee = 0.014%
+    fee_per_share = fd.r × (ask × (1 − ask)) ^ fd.e
 
-Maker orders still earn a rebate (flat 0.2%) — unchanged.
+e.g. fd={r:0.07, e:1} at ask=0.65: 0.07 × 0.65 × 0.35 = 0.01593/share (1.59%)
+     same params at ask=0.50 (max): 0.07 × 0.25 = 0.0175/share (1.75%)
 
-The fee is also needed in basis points (bps) for order signing:
-    fee_bps = round(fee_rate × 10_000)
+These coefficients are stored in MarketState.fee_rate_r and MarketState.fee_rate_e.
+Makers pay zero fees in V2 — no rebate, no charge.
+
+The fee math in these functions is for EV gating only. Order-level fee
+adjustment is handled by the SDK's adjust_buy_amount_for_fees() internally.
 """
 
 import logging
 
 import engine.strategy_loader as cfg
-from config import MAKER_REBATE_RATE
 
 logger = logging.getLogger(__name__)
 
 
-def dynamic_taker_fee(p_true: float) -> float:
-    """
-    Compute the dynamic taker fee rate for a given win probability.
-
-    Formula: fee = 0.25 × (p × (1 − p))²
-
-    The term (p × (1−p)) is the Bernoulli variance — it's maximised at p=0.5
-    and shrinks to zero at p→0 or p→1. Squaring it makes the fee fall even
-    faster at the extremes, rewarding high-confidence bets with near-zero fees.
-    """
-    p = max(0.001, min(0.999, p_true))  # clamp to avoid 0/1 edge cases
-    bernoulli_var = p * (1.0 - p)
-    return 0.25 * (bernoulli_var ** 2)
+def _taker_fee_per_share(ask_price: float, fee_rate_r: float, fee_rate_e: float) -> float:
+    """Dynamic V2 taker fee per share at the given ask price."""
+    if fee_rate_r <= 0 or ask_price <= 0 or ask_price >= 1:
+        return 0.0
+    return fee_rate_r * (ask_price * (1.0 - ask_price)) ** fee_rate_e
 
 
-def taker_fee_bps(p_true: float) -> int:
-    """
-    Return the fee in basis points (integer) for inclusion in order signing.
-    Required by Polymarket CLOB API — orders missing feeRateBps are rejected.
-    """
-    return round(dynamic_taker_fee(p_true) * 10_000)
-
-
-def expected_value(p_true: float, ask_price: float, is_maker: bool = False) -> float:
+def expected_value(
+    p_true: float,
+    ask_price: float,
+    fee_rate_r: float = 0.0,
+    fee_rate_e: float = 0.0,
+    is_maker: bool = False,
+) -> float:
     """
     EV of buying one share at ask_price given true win probability p_true.
 
-    Taker fee is now dynamic (probability-dependent).
-    Maker rebate remains flat at 0.2%.
+    V2: makers pay zero fees; takers pay a price-dependent fee:
+        fee_per_share = fee_rate_r × (ask × (1 − ask)) ^ fee_rate_e
 
-    EV = P(win) × (payout − ask − fee) + P(loss) × (−ask − fee)
-       = P(win) × (1 − ask − fee) − (1 − P(win)) × (ask + fee)
+    EV = P(win) × (1 − ask − fee) − P(loss) × (ask + fee)
     """
-    if is_maker:
-        fee = -MAKER_REBATE_RATE * ask_price   # negative fee = rebate (income)
-    else:
-        fee = dynamic_taker_fee(p_true) * ask_price
-
+    fee = 0.0 if is_maker else _taker_fee_per_share(ask_price, fee_rate_r, fee_rate_e)
     return p_true * (1.0 - ask_price - fee) + (1.0 - p_true) * -(ask_price + fee)
 
 
@@ -74,10 +58,15 @@ def passes_fee_filter(
     ask_price: float,
     best_bid: float,
     best_ask: float,
+    fee_rate_r: float = 0.0,
+    fee_rate_e: float = 0.0,
 ) -> tuple[bool, bool]:
     """
     Decide whether to execute and whether to use maker or taker order.
     All thresholds read live from strategy_config.json.
+
+    fee_rate_r / fee_rate_e: V2 fee coefficients from MarketState.
+    Makers always pay 0 in V2.
 
     Returns: (should_execute, use_maker)
     """
@@ -91,17 +80,16 @@ def passes_fee_filter(
     spread    = best_ask - best_bid
     use_maker = spread > spread_thresh
 
-    ev = expected_value(p_true, ask_price, is_maker=use_maker)
+    ev = expected_value(p_true, ask_price, fee_rate_r, fee_rate_e, is_maker=use_maker)
     if ev <= safety:
-        # Try taker before giving up
-        ev_taker = expected_value(p_true, ask_price, is_maker=False)
+        ev_taker = expected_value(p_true, ask_price, fee_rate_r, fee_rate_e, is_maker=False)
         if ev_taker <= safety:
             return False, False
         use_maker = False
 
-    # Raw margin guard using the dynamic fee
-    fee_rate = dynamic_taker_fee(p_true)
-    if 1.0 - ask_price * (1 + fee_rate) <= safety:
+    # Raw margin guard: ensure gross payout covers ask + max taker fee (at p=0.5)
+    max_fee = _taker_fee_per_share(0.5, fee_rate_r, fee_rate_e)
+    if 1.0 - ask_price - max_fee <= safety:
         return False, False
 
     return True, use_maker
@@ -110,27 +98,23 @@ def passes_fee_filter(
 def check_merge_arb(
     up_ask: float,
     down_ask: float,
+    fee_rate_r: float = 0.0,
+    fee_rate_e: float = 0.0,
     min_profit_pct: float = 0.005,
 ) -> tuple[bool, float]:
     """
-    Detect merge arbitrage opportunity: buy 1 UP + 1 DOWN → merge → receive $1.00.
+    Detect merge arbitrage: buy 1 UP + 1 DOWN → merge → receive $1.00.
+    Profitable when: up_ask + down_ask + fees_both_legs < 1.00
 
-    Profitable when:  up_ask + down_ask + total_fees < 1.00
-
-    Fee insight (from "Unlawful-Shear" bot analysis, April 2026):
-      At extreme prices (p≈0.01 / p≈0.99), the dynamic fee collapses to near-zero
-      because fee = 0.25 × (p×(1−p))². This is exactly when merge arb is available
-      — one side is pricing 1-3¢ and the other 97-99¢.
+    Uses dynamic V2 per-share fees for each leg.
 
     Returns: (is_arb_available, expected_profit_per_share_pair)
     """
     if up_ask <= 0 or down_ask <= 0 or up_ask >= 1 or down_ask >= 1:
         return False, 0.0
 
-    # Fee for UP side: p_true ≈ up_ask (market-implied probability)
-    fee_up   = dynamic_taker_fee(up_ask) * up_ask
-    # Fee for DOWN side: p_true ≈ down_ask
-    fee_down = dynamic_taker_fee(down_ask) * down_ask
+    fee_up   = _taker_fee_per_share(up_ask,   fee_rate_r, fee_rate_e)
+    fee_down = _taker_fee_per_share(down_ask, fee_rate_r, fee_rate_e)
 
     total_cost   = up_ask + down_ask + fee_up + fee_down
     gross_profit = 1.0 - total_cost

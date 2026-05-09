@@ -35,6 +35,14 @@ class MarketState:
     kill_switch_reason: str = ""
     kill_switch_source: str = ""   # "binance" | "polymarket" — used by stream loops for targeted recovery
 
+    # V2 fee parameters (fetched from SDK after discovery via get_clob_market_info).
+    # The actual per-share taker fee is price-dependent:
+    #   fee_per_share = fee_rate_r * (ask * (1 - ask)) ** fee_rate_e
+    # e.g. fd={"r":0.07,"e":1} at ask=0.65: 0.07*0.65*0.35 = 0.01593/share (1.59%)
+    # Makers pay zero in V2.
+    fee_rate_r: float = 0.0   # fd.r  — scaling coefficient
+    fee_rate_e: float = 0.0   # fd.e  — price-sensitivity exponent
+
     # Snipe guard — prevent firing more than once per market window
     snipe_fired: bool = False
 
