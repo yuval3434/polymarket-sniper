@@ -71,7 +71,7 @@ def _live_mode_startup() -> None:
     print(f"\n{banner}")
     print("  ⚠   WARNING — LIVE TRADING MODE ACTIVATED   ⚠")
     print("  REAL FUNDS ARE AT RISK ON EVERY TRADE")
-    print(f"  Bet size guardrails: $10 min / $15 max per trade")
+    print(f"  Bet size guardrails: $3 min / $3 max per trade")
     print(f"  Circuit breaker:     $50 drawdown or 20% of bank")
     print(f"  Kill switch:         3 s feed staleness threshold")
     print(f"  Press Ctrl+C NOW to abort.")
