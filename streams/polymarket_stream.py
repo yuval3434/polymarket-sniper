@@ -38,7 +38,8 @@ async def _rest_book_loop(state: MarketState) -> None:
         last_logged_tokens: tuple[str, str] = ("", "")
         while True:
             if state.kill_switch_active:
-                return
+                await asyncio.sleep(1.0)
+                continue
             up_id   = state.up_token_id
             down_id = state.down_token_id
             if up_id and down_id:
@@ -127,9 +128,6 @@ async def _ws_loop(state: MarketState) -> None:
             logger.warning(
                 "Polymarket WS error: %s — reconnecting in %.1fs", exc, backoff
             )
-
-        if state.kill_switch_active:
-            return
 
         await asyncio.sleep(backoff)
         backoff = min(backoff * 2, RECONNECT_BACKOFF_MAX)
