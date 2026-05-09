@@ -32,7 +32,8 @@ from agents.developer        import DeveloperAgent
 from agents.evaluator        import Evaluator
 from agents.osint_researcher import OSINTResearcher
 from agents.position_manager import PositionManager
-from config                  import STARTING_BANK_USDC
+from config                  import STARTING_BANK_USDC, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+from monitor.telegram_notifier import TelegramNotifier
 from core.database           import init_db, async_log_tick
 from core.pnl_tracker        import PnLTracker
 from core.risk_manager       import RiskManager
@@ -58,12 +59,14 @@ class Orchestrator:
         # Shared services
         self.pnl_tracker   = PnLTracker(strategy_version=1)
         self.risk_manager  = RiskManager(starting_bank=STARTING_BANK_USDC)
+        self.notifier      = TelegramNotifier(TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID)
 
         # Agents
         self.position_manager = PositionManager(
             pnl_tracker=self.pnl_tracker,
             risk_manager=self.risk_manager,
             outcome_queue=self.outcome_queue,
+            notifier=self.notifier,
         )
         self.evaluator        = Evaluator(self.outcome_queue, self.strategy_queue)
         self.osint_researcher = OSINTResearcher(self.strategy_queue)

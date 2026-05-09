@@ -92,3 +92,7 @@ VOL_WINDOW_SECONDS: int = 30
 
 # --- Paper trade output ---
 PAPER_TRADE_CSV: str = "paper_trades.csv"
+
+# --- Telegram notifications ---
+TELEGRAM_BOT_TOKEN: str = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID: str   = os.environ.get("TELEGRAM_CHAT_ID", "")

@@ -59,6 +59,7 @@ from core.risk_manager import RiskManager
 from core.tracker import TradeEntry, record_trade as _tracker_record
 import engine.strategy_loader as _scfg
 from market.state import MarketState
+from monitor.telegram_notifier import TelegramNotifier
 
 logger = logging.getLogger(__name__)
 
@@ -171,11 +172,13 @@ class PositionManager:
         risk_manager: RiskManager,
         outcome_queue: asyncio.Queue,
         strategy_version: int = 1,
+        notifier: Optional[TelegramNotifier] = None,
     ) -> None:
         self.pnl_tracker      = pnl_tracker
         self.risk_manager     = risk_manager
         self.outcome_queue    = outcome_queue
         self.strategy_version = strategy_version
+        self.notifier         = notifier
         self._position: Optional[OpenPosition] = None
         self.order_manager    = None  # wired by main.py after both are created
 
@@ -245,6 +248,16 @@ class PositionManager:
             f"  Trail   : +25% → breakeven | +50% → lock +25% floor\n"
             f"{'═'*62}\n"
         )
+        if self.notifier:
+            self.notifier.notify_trade_open(
+                token_side=token_side,
+                market_id=market_id,
+                entry_price=entry_price,
+                size_usdc=size_usdc,
+                p_true=p_true,
+                z_score=z_score,
+                is_dry_run=is_dry_run,
+            )
 
     async def monitor_loop(self, state: MarketState) -> None:
         """
@@ -469,6 +482,32 @@ class PositionManager:
             })
         except asyncio.QueueFull:
             pass
+
+        if self.notifier:
+            self.notifier.notify_trade_close(
+                token_side=pos.token_side,
+                market_id=pos.market_id,
+                entry_price=pos.entry_price,
+                exit_price=exit_price,
+                exit_type=exit_type,
+                pnl_usd=pnl_usd,
+                pnl_pct=pnl_pct,
+                win=win,
+                rr=rr,
+                is_dry_run=pos.is_dry_run,
+            )
+            s = self.pnl_tracker.session
+            streak_kind, streak_n = s.current_streak
+            self.notifier.notify_session(
+                total=s.total,
+                wins=s.wins,
+                losses=s.losses,
+                win_rate=s.win_rate,
+                total_pnl_usd=s.total_pnl_usd,
+                last10_win_rate=s.last_n_win_rate(10),
+                streak_kind=streak_kind,
+                streak_n=streak_n,
+            )
 
     # ------------------------------------------------------------------
     # Accessors
