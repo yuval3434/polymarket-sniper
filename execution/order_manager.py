@@ -127,8 +127,9 @@ class OrderManager:
         Taker path : immediate market order (FOK) via create_market_order.
         """
         usdc   = size_usdc if size_usdc is not None else MAX_POSITION_USDC
-        # Round to 4 decimal places to prevent "invalid signature" errors from SDK float precision
-        shares = round(usdc / ask_price, 4)
+        # Round strictly to 2 decimal places. The backend snaps values to tick sizes (usually 0.01).
+        # Signing un-snapped floats causes a hash mismatch and "invalid signature".
+        shares = round(usdc / ask_price, 2)
 
         if self.dry_run or self._client is None:
             logger.info(
@@ -141,11 +142,11 @@ class OrderManager:
         loop = asyncio.get_event_loop()
 
         if use_maker:
-            maker_price = round(ask_price - 0.001, 4)
+            maker_price = round(max(ask_price - 0.01, 0.01), 2)
             order_args  = OrderArgs(
                 token_id=token_id, price=maker_price, size=shares, side=side,
             )
-            options = PartialCreateOrderOptions()
+            options = PartialCreateOrderOptions(tick_size="0.01")
             try:
                 result = await loop.run_in_executor(
                     None, lambda: self._client.create_and_post_order(order_args, options)
@@ -207,13 +208,16 @@ class OrderManager:
         except Exception as exc:
             logger.warning("Could not fetch token balance, using theoretical size: %s", exc)
 
+        bid_price = round(min(max(bid_price, 0.01), 0.99), 2)
+        size_shares = round(size_shares, 2)
+
         order_args = OrderArgs(
             token_id=token_id,
             price=bid_price,
             size=size_shares,
             side="SELL",
         )
-        options = PartialCreateOrderOptions()
+        options = PartialCreateOrderOptions(tick_size="0.01")
         try:
             result = await loop.run_in_executor(
                 None, lambda: self._client.create_and_post_order(order_args, options)
