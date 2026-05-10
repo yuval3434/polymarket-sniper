@@ -261,6 +261,25 @@ class PositionManager:
                 is_dry_run=is_dry_run,
             )
 
+    def update_entry_price(self, actual_price: float, actual_size: float) -> None:
+        """Sync the internal position trackers to the actual filled price from the API."""
+        if self._position is None:
+            return
+            
+        old_price = self._position.entry_price
+        self._position.entry_price = actual_price
+        
+        if actual_size > 0:
+            self._position.size_shares = actual_size
+            self._position.size_usdc = actual_price * actual_size
+            
+        # Recalculate stop-loss parameters with the new realistic price
+        self._position.trailing_stop_price = max(self._position.entry_price * INITIAL_STOP_MULT, 0.01)
+        self._position.peak_bid = max(self._position.peak_bid, self._position.entry_price)
+        self._position.initial_risk_per_share = self._position.entry_price - self._position.trailing_stop_price
+        
+        logger.info("Position entry synced to actual fill: $%.4f (was $%.4f)", actual_price, old_price)
+
     async def monitor_loop(self, state: MarketState) -> None:
         """
         Runs every 500ms. Implements the trailing stop state machine and

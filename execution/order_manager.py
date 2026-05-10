@@ -34,6 +34,7 @@ except ImportError:
     logger.warning("py-clob-client not installed — live execution disabled")
 
 _MAKER_WAIT_SECONDS = 3.0
+_FAK_PRICE_SLIP = 0.02
 
 
 def _check_response(result: dict | None, label: str) -> None:
@@ -167,7 +168,7 @@ class OrderManager:
                     except Exception as cancel_exc:
                         logger.error("Cancel failed (may have filled): %s — aborting fallback to prevent double buy", cancel_exc)
                         return status_resp
-                    result = await self._place_market_order(token_id, side, usdc, loop, user_usdc_balance)
+                    result = await self._place_market_order(token_id, side, ask_price, shares, loop)
                 else:
                     result = status_resp
                 await self.verify_trade(order_id)
@@ -176,7 +177,7 @@ class OrderManager:
                 logger.error("Maker order exception: %s — aborting fallback to prevent double buy", exc)
                 return None
         else:
-            return await self._place_market_order(token_id, side, usdc, loop, user_usdc_balance)
+            return await self._place_market_order(token_id, side, ask_price, shares, loop)
 
     async def sell(
         self,
@@ -236,19 +237,20 @@ class OrderManager:
             return None
 
     async def _place_market_order(
-        self, token_id: str, side: str, amount_usdc: float, loop, user_usdc_balance: float = 0
+        self, token_id: str, side: str, ask_price: float, size_shares: float, loop
     ) -> dict | None:
-        """Market order: create (sign) then post as FAK. Amount in USDC."""
-        market_args = MarketOrderArgs(
+        """Market order fallback: post as a protected Limit FAK to avoid massive slippage."""
+        fak_price = round(min(max(ask_price + _FAK_PRICE_SLIP, 0.01), 0.99), 2)
+        order_args = OrderArgs(
             token_id=token_id,
-            amount=amount_usdc,
+            price=fak_price,
+            size=size_shares,
             side=side,
-            user_usdc_balance=user_usdc_balance,
         )
-        options = PartialCreateOrderOptions()
+        options = PartialCreateOrderOptions(tick_size="0.01")
         try:
             signed_order = await loop.run_in_executor(
-                None, lambda: self._client.create_market_order(market_args, options)
+                None, lambda: self._client.create_order(order_args, options)
             )
             logger.info("Signed market order created: %s", signed_order)
             result = await loop.run_in_executor(
