@@ -58,6 +58,7 @@ from core.pnl_tracker import PnLTracker, TradeRecord
 from core.risk_manager import RiskManager
 from core.tracker import TradeEntry, record_trade as _tracker_record
 import engine.strategy_loader as _scfg
+from engine.fee_filter import _taker_fee_per_share
 from market.state import MarketState
 from monitor.telegram_notifier import TelegramNotifier
 
@@ -200,6 +201,7 @@ class PositionManager:
     ) -> None:
         if self._position is not None:
             logger.warning("Overwriting existing position — should not happen")
+            return
 
         size_shares = size_usdc / entry_price
         asyncio.create_task(async_log_decision(
@@ -348,8 +350,15 @@ class PositionManager:
                 logger.error("SELL failed — keeping position open")
                 return
 
-        pnl_usd = (exit_bid - pos.entry_price) * pos.size_shares
-        pnl_pct = ((exit_bid / pos.entry_price) - 1.0) * 100
+        # Calculate net PnL by deducting Polymarket V2 dynamic taker fees
+        entry_fee = _taker_fee_per_share(pos.entry_price, state.fee_rate_r, state.fee_rate_e)
+        exit_fee  = _taker_fee_per_share(exit_bid, state.fee_rate_r, state.fee_rate_e)
+        
+        net_entry = pos.entry_price + entry_fee
+        net_exit  = exit_bid - exit_fee
+
+        pnl_usd = (net_exit - net_entry) * pos.size_shares
+        pnl_pct = ((net_exit / net_entry) - 1.0) * 100
         win     = pnl_usd > 0
         await self._finalise(pos, exit_bid, exit_type, pnl_usd, pnl_pct, win)
 
@@ -357,8 +366,13 @@ class PositionManager:
         bid = pos.current_bid(state)
         win = bid >= 0.50
         exit_price = 1.0 if win else 0.0
-        pnl_usd = (exit_price - pos.entry_price) * pos.size_shares
-        pnl_pct = ((exit_price / pos.entry_price) - 1.0) * 100
+        
+        # Expiry resolution has no exit fee, only entry fee
+        entry_fee = _taker_fee_per_share(pos.entry_price, state.fee_rate_r, state.fee_rate_e)
+        net_entry = pos.entry_price + entry_fee
+        
+        pnl_usd = (exit_price - net_entry) * pos.size_shares
+        pnl_pct = ((exit_price / net_entry) - 1.0) * 100
         await self._finalise(pos, exit_price, "EXPIRY", pnl_usd, pnl_pct, win)
 
     async def close_position_with_resolution(

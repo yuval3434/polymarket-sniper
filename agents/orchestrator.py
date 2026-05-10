@@ -196,6 +196,9 @@ class Orchestrator:
                 size_usdc=bet_usdc,
                 is_dry_run=self.dry_run,
             )
+    else:
+        logger.warning("PositionManager already has an open position — rejecting new snipe to prevent double buy")
+        return None
 
         # ── Shadow-trade the candidate config (if validation active) ──
         self.developer.record_shadow_trade(

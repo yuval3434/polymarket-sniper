@@ -1,4 +1,5 @@
 import asyncio
+import math
 import logging
 
 from config import (
@@ -160,15 +161,19 @@ class OrderManager:
                 logger.info("Maker order status: %s", status_resp)
                 if (status_resp or {}).get("status") not in ("MATCHED", "FILLED"):
                     logger.info("Maker not filled — cancelling, falling back to market order")
-                    await loop.run_in_executor(None, lambda: self._client.cancel_order(order_id))
+                    try:
+                        await loop.run_in_executor(None, lambda: self._client.cancel_order(order_id))
+                    except Exception as cancel_exc:
+                        logger.error("Cancel failed (may have filled): %s — aborting fallback to prevent double buy", cancel_exc)
+                        return status_resp
                     result = await self._place_market_order(token_id, side, usdc, loop, user_usdc_balance)
                 else:
                     result = status_resp
                 await self.verify_trade(order_id)
                 return result
             except Exception as exc:
-                logger.error("Maker order failed: %s — falling back to market order", exc)
-                return await self._place_market_order(token_id, side, usdc, loop, user_usdc_balance)
+                logger.error("Maker order exception: %s — aborting fallback to prevent double buy", exc)
+                return None
         else:
             return await self._place_market_order(token_id, side, usdc, loop, user_usdc_balance)
 
@@ -209,7 +214,7 @@ class OrderManager:
             logger.warning("Could not fetch token balance, using theoretical size: %s", exc)
 
         bid_price = round(min(max(bid_price, 0.01), 0.99), 2)
-        size_shares = round(size_shares, 2)
+        size_shares = math.floor(size_shares * 100) / 100
 
         order_args = OrderArgs(
             token_id=token_id,
