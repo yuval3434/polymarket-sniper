@@ -257,13 +257,14 @@ class OrderManager:
             _check_response(result, "market")
             order_id = result.get("orderID") or result.get("id", "") if result else ""
 
-        if order_id:
-            await asyncio.sleep(0.5)  # Wait for the matching engine to settle the FAK order
-            fill_status = await loop.run_in_executor(None, lambda: self._client.get_order(order_id))
-            if fill_status:
-                result = fill_status
-
-            await self.verify_trade(order_id)
+            if order_id:
+                await asyncio.sleep(0.5)  # Wait for the matching engine to settle the FAK order
+                fill_status = await loop.run_in_executor(None, lambda: self._client.get_order(order_id))
+                if fill_status:
+                    result = fill_status
+    
+                await self.verify_trade(order_id)
+                
             return result
         except Exception as exc:
             logger.error("Market order failed: %s", exc)
