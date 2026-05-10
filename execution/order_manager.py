@@ -163,7 +163,7 @@ class OrderManager:
                 if (status_resp or {}).get("status") not in ("MATCHED", "FILLED"):
                     logger.info("Maker not filled — cancelling, falling back to market order")
                     try:
-                        await loop.run_in_executor(None, lambda: self._client.cancel(order_id))
+                        await loop.run_in_executor(None, lambda: self._client.cancel_orders([order_id]))
                     except Exception as cancel_exc:
                         logger.error("Cancel failed (may have filled): %s — aborting fallback to prevent double buy", cancel_exc)
                         return status_resp
