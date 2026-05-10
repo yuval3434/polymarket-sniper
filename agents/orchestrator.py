@@ -213,6 +213,19 @@ class Orchestrator:
 
         return bet_usdc
 
+    def confirm_trade_execution(self, executed_price: float, executed_size: float) -> None:
+        """
+        Called by the sniper loop AFTER the OrderManager successfully completes the trade.
+        Updates the PositionManager and PnL Tracker with the realistic on-chain filled price.
+        """
+        if self.position_manager.has_open_position:
+            logger.info("Updating open position with actual filled price: $%.4f", executed_price)
+            # Requires update_entry_price() to be implemented in PositionManager
+            if hasattr(self.position_manager, "update_entry_price"):
+                self.position_manager.update_entry_price(executed_price, executed_size)
+            else:
+                logger.warning("PositionManager missing 'update_entry_price' method! Cannot track realistic PnL.")
+
     def status(self) -> str:
         return (
             f"[Orchestrator] {self.risk_manager.status_line()}  |  "
