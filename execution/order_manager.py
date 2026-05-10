@@ -160,7 +160,7 @@ class OrderManager:
                 logger.info("Maker order status: %s", status_resp)
                 if (status_resp or {}).get("status") not in ("MATCHED", "FILLED"):
                     logger.info("Maker not filled — cancelling, falling back to market order")
-                    await loop.run_in_executor(None, lambda: self._client.cancel(order_id))
+                    await loop.run_in_executor(None, lambda: self._client.cancel_order(order_id))
                     result = await self._place_market_order(token_id, side, usdc, loop, user_usdc_balance)
                 else:
                     result = status_resp
@@ -232,7 +232,7 @@ class OrderManager:
     async def _place_market_order(
         self, token_id: str, side: str, amount_usdc: float, loop, user_usdc_balance: float = 0
     ) -> dict | None:
-        """Market order: create (sign) then post as FOK. Amount in USDC."""
+        """Market order: create (sign) then post as FAK. Amount in USDC."""
         market_args = MarketOrderArgs(
             token_id=token_id,
             amount=amount_usdc,
@@ -246,7 +246,7 @@ class OrderManager:
             )
             logger.info("Signed market order created: %s", signed_order)
             result = await loop.run_in_executor(
-                None, lambda: self._client.post_order(signed_order, OrderType.FOK)
+                None, lambda: self._client.post_order(signed_order, OrderType.FAK)
             )
             _check_response(result, "market")
             order_id = result.get("orderID") or result.get("id", "") if result else ""
