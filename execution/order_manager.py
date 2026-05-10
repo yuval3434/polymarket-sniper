@@ -130,7 +130,8 @@ class OrderManager:
         usdc   = size_usdc if size_usdc is not None else MAX_POSITION_USDC
         # Round strictly to 2 decimal places. The backend snaps values to tick sizes (usually 0.01).
         # Signing un-snapped floats causes a hash mismatch and "invalid signature".
-        shares = round(usdc / ask_price, 2)
+        # Polymarket enforces a strict minimum order size of 5 shares.
+        shares = max(round(usdc / ask_price, 2), 5.0)
 
         if self.dry_run or self._client is None:
             logger.info(
@@ -162,7 +163,7 @@ class OrderManager:
                 if (status_resp or {}).get("status") not in ("MATCHED", "FILLED"):
                     logger.info("Maker not filled — cancelling, falling back to market order")
                     try:
-                        await loop.run_in_executor(None, lambda: self._client.cancel_order(order_id))
+                        await loop.run_in_executor(None, lambda: self._client.cancel(order_id))
                     except Exception as cancel_exc:
                         logger.error("Cancel failed (may have filled): %s — aborting fallback to prevent double buy", cancel_exc)
                         return status_resp
