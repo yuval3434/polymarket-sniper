@@ -36,6 +36,16 @@ except ImportError:
 _MAKER_WAIT_SECONDS = 3.0
 _FAK_PRICE_SLIP = 0.02
 
+class _CleanFloat(float):
+    """
+    Float subclass that intercepts multiplication to prevent 
+    floating-point precision artifacts (e.g. 18.52 * 0.56 = 10.371200000000001).
+    This ensures the SDK's internal math stringifies cleanly to <= 4 decimals.
+    """
+    def __mul__(self, other):
+        return _CleanFloat(round(super().__mul__(other), 4))
+    def __rmul__(self, other):
+        return _CleanFloat(round(super().__rmul__(other), 4))
 
 def _check_response(result: dict | None, label: str) -> None:
     """Log raw response and raise on silent failure."""
@@ -132,7 +142,7 @@ class OrderManager:
         # Round strictly to 2 decimal places. The backend snaps values to tick sizes (usually 0.01).
         # Signing un-snapped floats causes a hash mismatch and "invalid signature".
         # Polymarket enforces a strict minimum order size of 5 shares.
-        shares = max(round(usdc / ask_price, 2), 5.0)
+        shares = _CleanFloat(max(round(usdc / ask_price, 2), 5.0))
 
         if self.dry_run or self._client is None:
             logger.info(
@@ -145,7 +155,7 @@ class OrderManager:
         loop = asyncio.get_event_loop()
 
         if use_maker:
-            maker_price = round(max(ask_price - 0.01, 0.01), 2)
+            maker_price = _CleanFloat(round(max(ask_price - 0.01, 0.01), 2))
             order_args  = OrderArgs(
                 token_id=token_id, price=maker_price, size=shares, side=side,
             )
@@ -215,8 +225,8 @@ class OrderManager:
         except Exception as exc:
             logger.warning("Could not fetch token balance, using theoretical size: %s", exc)
 
-        bid_price = round(min(max(bid_price, 0.01), 0.99), 2)
-        size_shares = math.floor(size_shares * 100) / 100
+        bid_price = _CleanFloat(round(min(max(bid_price, 0.01), 0.99), 2))
+        size_shares = _CleanFloat(math.floor(size_shares * 100) / 100)
 
         order_args = OrderArgs(
             token_id=token_id,
@@ -240,7 +250,7 @@ class OrderManager:
         self, token_id: str, side: str, ask_price: float, size_shares: float, loop
     ) -> dict | None:
         """Market order fallback: post as a protected Limit FAK to avoid massive slippage."""
-        fak_price = round(min(max(ask_price + _FAK_PRICE_SLIP, 0.01), 0.99), 2)
+        fak_price = _CleanFloat(round(min(max(ask_price + _FAK_PRICE_SLIP, 0.01), 0.99), 2))
         order_args = OrderArgs(
             token_id=token_id,
             price=fak_price,
