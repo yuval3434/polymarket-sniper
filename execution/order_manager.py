@@ -106,19 +106,9 @@ class OrderManager:
 
     async def verify_trade(self, order_id: str) -> None:
         """Query open orders and positions immediately after a trade to confirm API visibility."""
-        if self._client is None:
-            return
-        loop = asyncio.get_event_loop()
-        try:
-            open_orders = await loop.run_in_executor(None, self._client.get_orders)
-            logger.info("POST-TRADE open orders: %s", open_orders)
-        except Exception as exc:
-            logger.warning("get_orders() failed: %s", exc)
-        try:
-            positions = await loop.run_in_executor(None, self._client.get_positions)
-            logger.info("POST-TRADE positions: %s", positions)
-        except Exception as exc:
-            logger.warning("get_positions() failed: %s", exc)
+        # PyClobClient V2 removed get_orders() and get_positions().
+        # Bypassing to prevent AttributeErrors and log spam.
+        pass
 
     async def snipe(
         self,
@@ -139,10 +129,11 @@ class OrderManager:
         Taker path : immediate market order (FOK) via create_market_order.
         """
         usdc   = size_usdc if size_usdc is not None else MAX_POSITION_USDC
-        # Round strictly to 2 decimal places. The backend snaps values to tick sizes (usually 0.01).
-        # Signing un-snapped floats causes a hash mismatch and "invalid signature".
-        # Polymarket enforces a strict minimum order size of 5 shares.
-        shares = _CleanFloat(max(round(usdc / ask_price, 2), 5.0))
+        # For BUY orders, Polymarket requires the maker amount (USDC) to have a max of 2 decimals.
+        # Since our limit price has 2 decimals, we must round the size (shares) to a whole integer.
+        # This guarantees that makerAmount (price * shares) never exceeds 2 decimals.
+        # (e.g., 0.65 * 15 = 9.75, which is valid. 0.65 * 15.87 = 10.3155, which fails).
+        shares = _CleanFloat(max(math.floor(usdc / ask_price), 5.0))
 
         if self.dry_run or self._client is None:
             logger.info(
