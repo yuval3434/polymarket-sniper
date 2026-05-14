@@ -218,7 +218,7 @@ class OrderManager:
         """
         # ── Attempt 1: true market order (no price specified) ─────────────
         try:
-            order_args = MarketOrderArgs(token_id=token_id, amount=usdc)
+            order_args = MarketOrderArgs(token_id=token_id, amount=usdc, side=side)
             signed_order = await loop.run_in_executor(
                 None, lambda: self._client.create_market_order(order_args)
             )
