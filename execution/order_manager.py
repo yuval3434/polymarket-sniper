@@ -214,36 +214,42 @@ class OrderManager:
         self, token_id: str, side: str, ask_price: float, usdc: float, loop
     ) -> dict | None:
         """True market order (FOK) spending `usdc` USDC at the best available price.
-        Falls back to a FAK limit at ask+slip if the market order is rejected.
+        Retries with smaller amounts (2, 1 USDC) if liquidity is insufficient.
+        Falls back to FAK limit at ask+slip as a last resort.
         """
-        # ── Attempt 1: true market order (no price specified) ─────────────
-        try:
-            order_args = MarketOrderArgs(token_id=token_id, amount=usdc, side=side)
-            signed_order = await loop.run_in_executor(
-                None, lambda: self._client.create_market_order(order_args)
-            )
-            logger.info("Signed market order (FOK): %s", signed_order)
-            result = await loop.run_in_executor(
-                None, lambda: self._client.post_order(signed_order, OrderType.FOK)
-            )
-            _check_response(result, "market-fok")
-            order_id = result.get("orderID") or result.get("id", "") if result else ""
-            if order_id:
-                await asyncio.sleep(0.5)
-                fill_status = await loop.run_in_executor(None, lambda: self._client.get_order(order_id))
-                if fill_status:
-                    result = fill_status
-            logger.info("Market order result: %s", result)
-            return result
-        except Exception as exc:
-            msg = str(exc)
-            if "no orders found" in msg or "FOK" in msg or "400" in msg:
-                logger.warning("Market FOK killed — no liquidity, falling back to FAK limit: %s", exc)
-            else:
-                logger.error("Market order failed: %s", exc)
-                return None
+        # ── Attempt 1+: true market order, decreasing size on no-liquidity ─
+        for attempt_usdc in (usdc, 2.0, 1.0):
+            if attempt_usdc > usdc:
+                continue  # never go above the intended size
+            _amt = attempt_usdc
+            try:
+                order_args = MarketOrderArgs(token_id=token_id, amount=_amt, side=side)
+                signed_order = await loop.run_in_executor(
+                    None, lambda: self._client.create_market_order(order_args)
+                )
+                logger.info("Signed market order (FOK) $%.2f: %s", _amt, signed_order)
+                result = await loop.run_in_executor(
+                    None, lambda: self._client.post_order(signed_order, OrderType.FOK)
+                )
+                _check_response(result, f"market-fok-{_amt}")
+                order_id = result.get("orderID") or result.get("id", "") if result else ""
+                if order_id:
+                    await asyncio.sleep(0.5)
+                    fill_status = await loop.run_in_executor(None, lambda: self._client.get_order(order_id))
+                    if fill_status:
+                        result = fill_status
+                logger.info("Market order filled at $%.2f: %s", _amt, result)
+                return result
+            except Exception as exc:
+                msg = str(exc)
+                if "no orders found" in msg or "FOK" in msg or "400" in msg:
+                    logger.warning("Market FOK $%.2f killed — no liquidity: %s", _amt, exc)
+                else:
+                    logger.error("Market order $%.2f failed: %s", _amt, exc)
+                    return None
 
-        # ── Attempt 2: FAK limit at ask + slip ────────────────────────────
+        # ── Last resort: FAK limit at ask + slip ──────────────────────────
+        logger.warning("All market FOK attempts failed — trying FAK limit fallback")
         fak_price  = round(min(max(ask_price + _FAK_PRICE_SLIP, 0.01), 0.99), 2)
         shares     = _find_clean_shares(fak_price, usdc)
         order_args = OrderArgs(
@@ -273,7 +279,7 @@ class OrderManager:
         except Exception as exc:
             msg = str(exc)
             if "no orders found to match" in msg or "FAK" in msg:
-                logger.warning("FAK fallback also killed — no liquidity at price (missed trade): %s", exc)
+                logger.warning("FAK fallback also killed — no liquidity (missed trade): %s", exc)
             else:
                 logger.error("FAK fallback failed: %s", exc)
             return None
