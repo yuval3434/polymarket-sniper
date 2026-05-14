@@ -46,6 +46,7 @@ from simulation.paper_trader import log_decision, resolve_pending_trades
 from streams.binance_stream import binance_stream_loop
 from streams.polymarket_stream import polymarket_stream_loop
 from agents.orchestrator import Orchestrator
+from monitor.telegram_notifier import TelegramLogHandler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -268,6 +269,9 @@ async def main(dry_run: bool) -> None:
     order_manager = OrderManager(dry_run=dry_run)
     orchestrator  = Orchestrator(state=state, dry_run=dry_run)
     orchestrator.position_manager.order_manager = order_manager
+
+    # Forward ERROR+ log records to Telegram
+    logging.getLogger().addHandler(TelegramLogHandler(orchestrator.notifier))
 
     await orchestrator.run_all(
         discovery_coro   = discovery_loop(state, order_manager._client),

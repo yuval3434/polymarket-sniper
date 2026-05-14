@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Optional
 
 import aiohttp
@@ -111,6 +112,21 @@ class TelegramNotifier:
     # Internal sender — never raises
     # ------------------------------------------------------------------
 
+    def send_error(self, text: str) -> None:
+        """
+        Schedule an error alert from a synchronous context (e.g. a logging handler).
+        Uses run_coroutine_threadsafe so it works whether called from the event loop
+        thread or from an executor thread.
+        """
+        if not self._enabled:
+            return
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.run_coroutine_threadsafe(self._send(text), loop)
+        except Exception:
+            pass
+
     async def _send(self, text: str) -> None:
         try:
             async with aiohttp.ClientSession(timeout=_TIMEOUT) as session:
@@ -121,3 +137,33 @@ class TelegramNotifier:
                         logger.warning("Telegram returned %s: %s", resp.status, body[:200])
         except Exception as exc:
             logger.warning("Telegram send failed: %s", exc)
+
+
+class TelegramLogHandler(logging.Handler):
+    """
+    Logging handler that forwards ERROR and CRITICAL records to Telegram.
+    Rate-limited to one message per 10 seconds to avoid flood on repeated errors.
+    Attach to the root logger after the event loop is running.
+    """
+    _RATE_LIMIT_S = 10.0
+
+    def __init__(self, notifier: TelegramNotifier) -> None:
+        super().__init__(level=logging.ERROR)
+        self.notifier    = notifier
+        self._last_sent  = 0.0
+        self._suppressed = 0
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if not self.notifier._enabled:
+            return
+        now = time.monotonic()
+        if now - self._last_sent < self._RATE_LIMIT_S:
+            self._suppressed += 1
+            return
+        self._last_sent  = now
+        suppressed_note  = f"  (+{self._suppressed} suppressed)\n" if self._suppressed else ""
+        self._suppressed = 0
+        icon    = "🔴" if record.levelno >= logging.CRITICAL else "⚠️"
+        text    = self.format(record)[:800]   # Telegram message cap
+        message = f"{icon} {record.levelname}  [{record.name}]\n{suppressed_note}{text}"
+        self.notifier.send_error(message)
