@@ -250,16 +250,20 @@ class PositionManager:
             f"  Trail   : +25% → breakeven | +50% → lock +25% floor\n"
             f"{'═'*62}\n"
         )
-        if self.notifier:
-            self.notifier.notify_trade_open(
-                token_side=token_side,
-                market_id=market_id,
-                entry_price=entry_price,
-                size_usdc=size_usdc,
-                p_true=p_true,
-                z_score=z_score,
-                is_dry_run=is_dry_run,
-            )
+    def notify_open(self) -> None:
+        """Send the trade-open Telegram notification. Called only after order fill is confirmed."""
+        pos = self._position
+        if pos is None or self.notifier is None:
+            return
+        self.notifier.notify_trade_open(
+            token_side=pos.token_side,
+            market_id=pos.market_id,
+            entry_price=pos.entry_price,
+            size_usdc=pos.size_usdc,
+            p_true=pos.p_true,
+            z_score=pos.z_score,
+            is_dry_run=pos.is_dry_run,
+        )
 
     def update_entry_price(self, actual_price: float, actual_size: float) -> None:
         """Sync the internal position trackers to the actual filled price from the API."""
