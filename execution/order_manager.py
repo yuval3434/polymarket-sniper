@@ -35,7 +35,9 @@ except ImportError:
     logger.warning("py-clob-client not installed — live execution disabled")
 
 _FAK_PRICE_SLIP     = 0.03
-_GTC_WAIT_SECONDS   = 15.0  # wait this long for a GTC fill before cancelling
+_FAK_RETRY_DELAY    = 0.5   # seconds between FAK retries
+_FAK_MAX_RETRIES    = 3     # retries after initial attempt
+_FAK_MAX_DRIFT      = 0.08  # abort if ask moves more than 8 cents from signal price
 
 def _find_clean_shares(price: float, usdc: float, min_shares: int = 5) -> int:
     """
@@ -128,31 +130,51 @@ class OrderManager:
         user_usdc_balance: float = 0,
     ) -> dict | None:
         """
-        Execute a snipe order via FAK (Fill-and-Kill limit) at ask + slip.
-        Always uses the freshest ask from state at execution time.
-        Maker path is skipped — a 1s wait makes the fallback FAK price stale.
+        Market FAK with rapid retry on empty book.
+        Each attempt reads the freshest ask from state.
+        Aborts if the ask drifts more than _FAK_MAX_DRIFT from the signal price
+        (momentum has passed).
         """
         usdc = size_usdc if size_usdc is not None else MAX_POSITION_USDC
 
         if self.dry_run or self._client is None:
             shares = _find_clean_shares(ask_price, usdc)
             logger.info(
-                "[PAPER] Would snipe: token=%s side=%s size_usdc=%.2f shares=%d "
-                "price=%.4f",
+                "[PAPER] Would snipe: token=%s side=%s size_usdc=%.2f shares=%d price=%.4f",
                 token_id, side, usdc, shares, ask_price,
             )
             return {"order_id": "PAPER", "status": "simulated", "price": ask_price, "size": shares}
 
         loop = asyncio.get_event_loop()
 
-        # Use the freshest available ask from state rather than the signal-time price
-        if token_id == state.up_token_id:
-            live_ask = state.up_best_ask
-        else:
-            live_ask = state.down_best_ask
-        fresh_ask = live_ask if 0 < live_ask < 1 else ask_price
+        def _fresh_ask() -> float:
+            live = state.up_best_ask if token_id == state.up_token_id else state.down_best_ask
+            return live if 0 < live < 1 else ask_price
 
-        return await self._place_market_order(token_id, side, fresh_ask, usdc, loop)
+        signal_ask = _fresh_ask()
+
+        for attempt in range(_FAK_MAX_RETRIES + 1):
+            current_ask = _fresh_ask()
+            drift = abs(current_ask - signal_ask)
+            if drift > _FAK_MAX_DRIFT:
+                logger.warning(
+                    "Snipe aborted — ask drifted %.4f (max %.2f) — momentum passed",
+                    drift, _FAK_MAX_DRIFT,
+                )
+                return None
+
+            if attempt > 0:
+                logger.info("FAK retry %d/%d fresh_ask=%.4f drift=%.4f", attempt, _FAK_MAX_RETRIES, current_ask, drift)
+
+            result = await self._place_market_order(token_id, side, current_ask, usdc, loop)
+            if result is not None:
+                return result
+
+            if attempt < _FAK_MAX_RETRIES:
+                await asyncio.sleep(_FAK_RETRY_DELAY)
+
+        logger.warning("FAK failed after %d attempts — trade missed", _FAK_MAX_RETRIES + 1)
+        return None
 
     async def sell(
         self,
@@ -214,25 +236,19 @@ class OrderManager:
     async def _place_market_order(
         self, token_id: str, side: str, ask_price: float, usdc: float, loop
     ) -> dict | None:
-        """
-        1. Try market FAK — fills whatever is in the book immediately.
-        2. If book is empty, place a GTC limit at ask price and wait up to
-           _GTC_WAIT_SECONDS for a seller to appear, then cancel if still open.
-        """
-        # ── Attempt 1: market FAK ─────────────────────────────────────────
+        """Single market FAK attempt. Returns result on fill, None on empty book."""
         try:
             order_args = MarketOrderArgs(token_id=token_id, amount=usdc, side=side)
             signed_order = await loop.run_in_executor(
                 None, lambda: self._client.create_market_order(order_args)
             )
-            logger.info("Signed market order (FAK) $%.2f: %s", usdc, signed_order)
             result = await loop.run_in_executor(
                 None, lambda: self._client.post_order(signed_order, OrderType.FAK)
             )
             _check_response(result, "market-fak")
             order_id = result.get("orderID") or result.get("id", "") if result else ""
             if order_id:
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.3)
                 fill_status = await loop.run_in_executor(None, lambda: self._client.get_order(order_id))
                 if fill_status:
                     result = fill_status
@@ -241,58 +257,7 @@ class OrderManager:
         except Exception as exc:
             msg = str(exc)
             if "no orders found" in msg or "FAK" in msg or "400" in msg:
-                logger.warning("Market FAK empty book — placing GTC limit and waiting %.0fs", _GTC_WAIT_SECONDS)
+                logger.warning("Market FAK — empty book (will retry if drift ok)")
             else:
                 logger.error("Market order failed: %s", exc)
-                return None
-
-        # ── Attempt 2: GTC limit at ask, wait for fill, then cancel ──────
-        gtc_price  = round(min(max(ask_price + _FAK_PRICE_SLIP, 0.01), 0.99), 2)
-        shares     = _find_clean_shares(gtc_price, usdc)
-        order_args = OrderArgs(token_id=token_id, price=gtc_price, size=float(shares), side=side)
-        options    = PartialCreateOrderOptions(tick_size="0.01")
-        gtc_id     = None
-        try:
-            signed_order = await loop.run_in_executor(
-                None, lambda: self._client.create_order(order_args, options)
-            )
-            result = await loop.run_in_executor(
-                None, lambda: self._client.post_order(signed_order, OrderType.GTC)
-            )
-            _check_response(result, "gtc")
-            gtc_id = result.get("orderID") or result.get("id", "") if result else ""
-            logger.info("GTC limit placed at $%.2f for %d shares (id=%s)", gtc_price, shares, gtc_id)
-        except Exception as exc:
-            logger.error("GTC limit placement failed: %s", exc)
             return None
-
-        if not gtc_id:
-            return None
-
-        # Poll for fill, then cancel if still open
-        await asyncio.sleep(_GTC_WAIT_SECONDS)
-        try:
-            status = await loop.run_in_executor(None, lambda: self._client.get_order(gtc_id))
-            s = status or {}
-            order_status   = s.get("status", "")
-            size_matched   = float(
-                s.get("sizeMatched") or s.get("size_matched") or
-                s.get("sizeFilled")  or s.get("size_filled")  or
-                s.get("takingAmount") or 0
-            )
-            # "matched" status or any non-zero fill means the order executed
-            if order_status == "matched" or size_matched > 0:
-                logger.info("GTC filled (status=%s matched=%.4f)", order_status, size_matched)
-                return status
-        except Exception as exc:
-            logger.error("GTC status check failed: %s", exc)
-
-        # Cancel unfilled GTC
-        try:
-            await loop.run_in_executor(
-                None, lambda: self._client.cancel_order(OrderPayload(orderID=gtc_id))
-            )
-            logger.warning("GTC cancelled — no fill after %.0fs (trade missed)", _GTC_WAIT_SECONDS)
-        except Exception as exc:
-            logger.error("GTC cancel failed: %s", exc)
-        return None
