@@ -127,59 +127,31 @@ class OrderManager:
         user_usdc_balance: float = 0,
     ) -> dict | None:
         """
-        Execute a snipe order.
-
-        Maker path : GTC limit at ask_price - 0.001; waits _MAKER_WAIT_SECONDS;
-                     falls back to market order if not filled.
-        Taker path : immediate market order (FOK) via create_market_order.
+        Execute a snipe order via FAK (Fill-and-Kill limit) at ask + slip.
+        Always uses the freshest ask from state at execution time.
+        Maker path is skipped — a 1s wait makes the fallback FAK price stale.
         """
-        usdc   = size_usdc if size_usdc is not None else MAX_POSITION_USDC
-        maker_price = round(max(ask_price - 0.01, 0.01), 2)
-        shares = _find_clean_shares(maker_price, usdc)
+        usdc = size_usdc if size_usdc is not None else MAX_POSITION_USDC
 
         if self.dry_run or self._client is None:
+            shares = _find_clean_shares(ask_price, usdc)
             logger.info(
-                "[PAPER] Would snipe: token=%s side=%s size_usdc=%.2f shares=%.4f "
-                "price=%.4f maker=%s",
-                token_id, side, usdc, shares, ask_price, use_maker,
+                "[PAPER] Would snipe: token=%s side=%s size_usdc=%.2f shares=%d "
+                "price=%.4f",
+                token_id, side, usdc, shares, ask_price,
             )
             return {"order_id": "PAPER", "status": "simulated", "price": ask_price, "size": shares}
 
         loop = asyncio.get_event_loop()
 
-        if use_maker:
-            order_args = OrderArgs(
-                token_id=token_id, price=maker_price, size=float(shares), side=side,
-            )
-            options = PartialCreateOrderOptions(tick_size="0.01")
-            try:
-                result = await loop.run_in_executor(
-                    None, lambda: self._client.create_and_post_order(order_args, options)
-                )
-                _check_response(result, "maker")
-                await asyncio.sleep(_MAKER_WAIT_SECONDS)
-                order_id    = result.get("orderID") or result.get("id", "") if result else ""
-                status_resp = await loop.run_in_executor(
-                    None, lambda: self._client.get_order(order_id)
-                )
-                logger.info("Maker order status: %s", status_resp)
-                if (status_resp or {}).get("status") not in ("MATCHED", "FILLED"):
-                    logger.info("Maker not filled — cancelling, falling back to market order")
-                    try:
-                        await loop.run_in_executor(None, lambda: self._client.cancel_orders([order_id]))
-                    except Exception as cancel_exc:
-                        logger.error("Cancel failed (may have filled): %s — aborting fallback to prevent double buy", cancel_exc)
-                        return status_resp
-                    result = await self._place_market_order(token_id, side, ask_price, shares, loop)
-                else:
-                    result = status_resp
-                await self.verify_trade(order_id)
-                return result
-            except Exception as exc:
-                logger.error("Maker order exception: %s — aborting fallback to prevent double buy", exc)
-                return None
+        # Use the freshest available ask from state rather than the signal-time price
+        if token_id == state.up_token_id:
+            live_ask = state.up_best_ask
         else:
-            return await self._place_market_order(token_id, side, ask_price, shares, loop)
+            live_ask = state.down_best_ask
+        fresh_ask = live_ask if 0 < live_ask < 1 else ask_price
+
+        return await self._place_market_order(token_id, side, fresh_ask, usdc, loop)
 
     async def sell(
         self,
@@ -239,11 +211,11 @@ class OrderManager:
             return None
 
     async def _place_market_order(
-        self, token_id: str, side: str, ask_price: float, size_shares: float, loop
+        self, token_id: str, side: str, ask_price: float, usdc: float, loop
     ) -> dict | None:
-        """Market order fallback: post as a protected Limit FAK to avoid massive slippage."""
+        """FAK limit order at ask + slip. Uses fresh ask so the price is current at execution."""
         fak_price = round(min(max(ask_price + _FAK_PRICE_SLIP, 0.01), 0.99), 2)
-        shares    = _find_clean_shares(fak_price, size_shares * fak_price)
+        shares    = _find_clean_shares(fak_price, usdc)
         order_args = OrderArgs(
             token_id=token_id,
             price=fak_price,
