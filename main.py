@@ -248,7 +248,11 @@ async def sniper_loop(
                     state=state, size_usdc=bet_usdc,
                     p_true=p_true,
                 )
-                if result and isinstance(result, dict) and result.get("status") != "simulated":
+                if not result:
+                    # Order failed — undo the position so no false notification is held
+                    orchestrator.position_manager.cancel_position()
+                    return
+                if isinstance(result, dict) and result.get("status") != "simulated":
                     size_matched = float(result.get("sizeMatched") or result.get("size_matched") or 0)
                     fill_price   = float(result.get("price") or ask_price)
                     actual_usdc  = round(size_matched * fill_price, 4)

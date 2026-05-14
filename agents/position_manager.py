@@ -546,6 +546,18 @@ class PositionManager:
     # Accessors
     # ------------------------------------------------------------------
 
+    def cancel_position(self) -> None:
+        """Clear a just-opened position because the order failed to fill.
+        Does NOT record a trade or send any notification."""
+        if self._position is not None:
+            logger.warning(
+                "Cancelling unexecuted position: %s %s @ %.4f",
+                self._position.token_side,
+                self._position.market_id,
+                self._position.entry_price,
+            )
+            self._position = None
+
     @property
     def has_open_position(self) -> bool:
         return self._position is not None
