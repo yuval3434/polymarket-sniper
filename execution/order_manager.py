@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 try:
     from py_clob_client_v2.client import ClobClient
     from py_clob_client_v2.clob_types import (
+        OrderPayload,
         ApiCreds,
         BuilderConfig,
         MarketOrderArgs,
@@ -273,19 +274,24 @@ class OrderManager:
         try:
             status = await loop.run_in_executor(None, lambda: self._client.get_order(gtc_id))
             s = status or {}
-            size_matched = float(
+            order_status   = s.get("status", "")
+            size_matched   = float(
                 s.get("sizeMatched") or s.get("size_matched") or
-                s.get("sizeFilled") or s.get("size_filled") or 0
+                s.get("sizeFilled")  or s.get("size_filled")  or
+                s.get("takingAmount") or 0
             )
-            if size_matched > 0:
-                logger.info("GTC filled %.4f shares after wait", size_matched)
+            # "matched" status or any non-zero fill means the order executed
+            if order_status == "matched" or size_matched > 0:
+                logger.info("GTC filled (status=%s matched=%.4f)", order_status, size_matched)
                 return status
         except Exception as exc:
             logger.error("GTC status check failed: %s", exc)
 
         # Cancel unfilled GTC
         try:
-            await loop.run_in_executor(None, lambda: self._client.cancel_order(gtc_id))
+            await loop.run_in_executor(
+                None, lambda: self._client.cancel_order(OrderPayload(orderID=gtc_id))
+            )
             logger.warning("GTC cancelled — no fill after %.0fs (trade missed)", _GTC_WAIT_SECONDS)
         except Exception as exc:
             logger.error("GTC cancel failed: %s", exc)
