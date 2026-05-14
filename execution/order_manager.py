@@ -1,6 +1,8 @@
 import asyncio
+import gc
 import math
 import logging
+import concurrent.futures
 
 from config import (
     ETH_PRIVATE_KEY,
@@ -35,9 +37,15 @@ except ImportError:
     logger.warning("py-clob-client not installed — live execution disabled")
 
 _FAK_PRICE_SLIP     = 0.03
-_FAK_RETRY_DELAY    = 0.5   # seconds between FAK retries
+_FAK_RETRY_DELAY    = 0.2   # seconds between FAK retries (reduced from 0.5)
 _FAK_MAX_RETRIES    = 3     # retries after initial attempt
 _FAK_MAX_DRIFT      = 0.08  # abort if ask moves more than 8 cents from signal price
+
+# Dedicated 2-thread pool for order execution — isolated from the default pool
+# so Binance/Polymarket WS threads don't compete for GIL during signing+POST
+_ORDER_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=2, thread_name_prefix="order"
+)
 
 def _find_clean_shares(price: float, usdc: float, min_shares: int = 5) -> int:
     """
@@ -101,6 +109,20 @@ class OrderManager:
             logger.info("OrderManager in paper mode — no real orders will be placed")
         else:
             logger.error("py-clob-client not available — cannot run in live mode")
+
+    async def warm_connection(self) -> None:
+        """Fire a cheap GET to keep the HTTP/2 connection to the CLOB alive.
+        Called at T-120s so the TLS session is warm when the snipe fires."""
+        if self._client is None:
+            return
+        try:
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                _ORDER_EXECUTOR, lambda: self._client.get_server_time()
+            )
+            logger.debug("CLOB connection warmed")
+        except Exception:
+            pass  # non-critical — failure just means no pre-warm
 
     async def cancel_all(self) -> None:
         if self._client is None:
@@ -236,20 +258,25 @@ class OrderManager:
     async def _place_market_order(
         self, token_id: str, side: str, ask_price: float, usdc: float, loop
     ) -> dict | None:
-        """Single market FAK attempt. Returns result on fill, None on empty book."""
+        """Single market FAK attempt using isolated thread pool. GC paused during execution."""
+        gc.disable()
         try:
             order_args = MarketOrderArgs(token_id=token_id, amount=usdc, side=side)
+            # create_market_order: ECDSA signing + potential internal HTTP GET
             signed_order = await loop.run_in_executor(
-                None, lambda: self._client.create_market_order(order_args)
+                _ORDER_EXECUTOR, lambda: self._client.create_market_order(order_args)
             )
+            # post_order: single HTTP POST — the hot path
             result = await loop.run_in_executor(
-                None, lambda: self._client.post_order(signed_order, OrderType.FAK)
+                _ORDER_EXECUTOR, lambda: self._client.post_order(signed_order, OrderType.FAK)
             )
             _check_response(result, "market-fak")
             order_id = result.get("orderID") or result.get("id", "") if result else ""
             if order_id:
-                await asyncio.sleep(0.3)
-                fill_status = await loop.run_in_executor(None, lambda: self._client.get_order(order_id))
+                # FAK settles immediately — no sleep needed, just confirm
+                fill_status = await loop.run_in_executor(
+                    _ORDER_EXECUTOR, lambda: self._client.get_order(order_id)
+                )
                 if fill_status:
                     result = fill_status
             logger.info("Market FAK result: %s", result)
@@ -261,3 +288,6 @@ class OrderManager:
             else:
                 logger.error("Market order failed: %s", exc)
             return None
+        finally:
+            gc.enable()
+            gc.collect(0)  # collect only gen-0 (fast, <1ms) to clear order objects

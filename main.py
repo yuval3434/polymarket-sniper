@@ -14,6 +14,7 @@ Usage:
 
 import argparse
 import asyncio
+import gc
 import logging
 import sys
 import time
@@ -54,6 +55,11 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger(__name__)
+
+# ── GC tuning: raise gen-0 threshold to reduce mid-flight collections ──────
+# Default is (700, 10, 10). Raising gen-0 to 2000 means ~3× fewer pauses
+# during the 100ms sniper tick. We call gc.collect(0) manually after each order.
+gc.set_threshold(2000, 15, 15)
 
 _SNIPE_POLL_INTERVAL = 0.1
 _SNIPE_STOP_BUFFER   = 2.0
@@ -98,6 +104,7 @@ async def sniper_loop(
 ) -> None:
     import time as _time
     _last_status = 0.0
+    _conn_warmed = False   # track whether we've pre-warmed the CLOB connection
 
     _last_price_reject_key = ("", 0.0)  # (market_id, ask_price) — suppress repeat prints
     _cb_logged = False   # suppress circuit-breaker spam — log once when it trips
@@ -133,7 +140,14 @@ async def sniper_loop(
                     tau, state.btc_price, state.up_best_ask, state.down_best_ask,
                 )
                 _last_status = now
+            _conn_warmed = False  # reset for next market
             continue
+
+        # Pre-warm the CLOB HTTP/2 connection once per market, at T-120s,
+        # so the TLS session is alive before the snipe fires
+        if not dry_run and not _conn_warmed and tau <= 120:
+            _conn_warmed = True
+            asyncio.create_task(order_manager.warm_connection())
 
         if tau < stop_buf:
             continue
