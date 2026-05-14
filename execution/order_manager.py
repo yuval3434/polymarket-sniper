@@ -36,16 +36,21 @@ except ImportError:
 _MAKER_WAIT_SECONDS = 3.0
 _FAK_PRICE_SLIP = 0.02
 
-class _CleanFloat(float):
+def _find_clean_shares(price: float, usdc: float, min_shares: int = 5) -> int:
     """
-    Float subclass that intercepts multiplication to prevent 
-    floating-point precision artifacts (e.g. 18.52 * 0.56 = 10.371200000000001).
-    This ensures the SDK's internal math stringifies cleanly to <= 4 decimals.
+    Find the largest integer share count <= floor(usdc/price) such that
+    price * shares has at most 2 decimal places in Python float arithmetic.
+
+    Polymarket rejects orders where makerAmount (price × shares) has more
+    than 2 decimal places. IEEE 754 can produce noise like 0.33*7=2.3100...005,
+    so we test each candidate and reduce by 1 until the product is clean.
     """
-    def __mul__(self, other):
-        return _CleanFloat(round(super().__mul__(other), 4))
-    def __rmul__(self, other):
-        return _CleanFloat(round(super().__rmul__(other), 4))
+    computed = max(int(usdc / price), min_shares)
+    for shares in range(computed, min_shares - 1, -1):
+        product = price * shares
+        if abs(product - round(product, 2)) < 1e-9:
+            return shares
+    return min_shares
 
 def _check_response(result: dict | None, label: str) -> None:
     """Log raw response and raise on silent failure."""
@@ -129,11 +134,8 @@ class OrderManager:
         Taker path : immediate market order (FOK) via create_market_order.
         """
         usdc   = size_usdc if size_usdc is not None else MAX_POSITION_USDC
-        # For BUY orders, Polymarket requires the maker amount (USDC) to have a max of 2 decimals.
-        # Since our limit price has 2 decimals, we must round the size (shares) to a whole integer.
-        # This guarantees that makerAmount (price * shares) never exceeds 2 decimals.
-        # (e.g., 0.65 * 15 = 9.75, which is valid. 0.65 * 15.87 = 10.3155, which fails).
-        shares = _CleanFloat(max(math.floor(usdc / ask_price), 5.0))
+        maker_price = round(max(ask_price - 0.01, 0.01), 2)
+        shares = _find_clean_shares(maker_price, usdc)
 
         if self.dry_run or self._client is None:
             logger.info(
@@ -146,9 +148,8 @@ class OrderManager:
         loop = asyncio.get_event_loop()
 
         if use_maker:
-            maker_price = _CleanFloat(round(max(ask_price - 0.01, 0.01), 2))
-            order_args  = OrderArgs(
-                token_id=token_id, price=maker_price, size=shares, side=side,
+            order_args = OrderArgs(
+                token_id=token_id, price=maker_price, size=float(shares), side=side,
             )
             options = PartialCreateOrderOptions(tick_size="0.01")
             try:
@@ -241,11 +242,12 @@ class OrderManager:
         self, token_id: str, side: str, ask_price: float, size_shares: float, loop
     ) -> dict | None:
         """Market order fallback: post as a protected Limit FAK to avoid massive slippage."""
-        fak_price = _CleanFloat(round(min(max(ask_price + _FAK_PRICE_SLIP, 0.01), 0.99), 2))
+        fak_price = round(min(max(ask_price + _FAK_PRICE_SLIP, 0.01), 0.99), 2)
+        shares    = _find_clean_shares(fak_price, size_shares * fak_price)
         order_args = OrderArgs(
             token_id=token_id,
             price=fak_price,
-            size=size_shares,
+            size=float(shares),
             side=side,
         )
         options = PartialCreateOrderOptions(tick_size="0.01")
