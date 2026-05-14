@@ -149,6 +149,7 @@ class TelegramLogHandler(logging.Handler):
 
     def __init__(self, notifier: TelegramNotifier) -> None:
         super().__init__(level=logging.ERROR)
+        self.addFilter(lambda r: r.levelno == logging.ERROR)
         self.notifier    = notifier
         self._last_sent  = 0.0
         self._suppressed = 0
@@ -163,7 +164,7 @@ class TelegramLogHandler(logging.Handler):
         self._last_sent  = now
         suppressed_note  = f"  (+{self._suppressed} suppressed)\n" if self._suppressed else ""
         self._suppressed = 0
-        icon    = "🔴" if record.levelno >= logging.CRITICAL else "⚠️"
+        icon    = "⚠️"
         text    = self.format(record)[:800]   # Telegram message cap
         message = f"{icon} {record.levelname}  [{record.name}]\n{suppressed_note}{text}"
         self.notifier.send_error(message)
