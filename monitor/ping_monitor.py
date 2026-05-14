@@ -1,7 +1,9 @@
 """
 Ping Monitor — Network Health Diagnostic
 =========================================
-Measures round-trip latency to Binance REST API every second.
+Measures round-trip latency to Polymarket CLOB every second.
+This is the endpoint the bot actually posts orders to, so this RTT
+directly reflects order execution path latency.
 Correlates ping health with kill-switch events to distinguish
 "my internet dropped" from "event loop was blocked".
 
@@ -27,7 +29,7 @@ logger = logging.getLogger(__name__)
 _BASE     = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _CSV_PATH = os.path.join(_BASE, "ping_log.csv")
 
-_PING_URL       = "https://api.binance.com/api/v3/ping"
+_PING_URL       = "https://clob.polymarket.com/version"   # measures actual order execution path
 _INTERVAL_S     = 1.0     # ping every second
 _TIMEOUT_S      = 3.0     # treat as packet loss if no reply within 3s
 _ROLLING_WINDOW = 60      # keep last 60 samples for stats
