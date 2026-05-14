@@ -141,10 +141,10 @@ class PnLTracker:
         }.get(t.exit_type, t.exit_type)
 
         if t.win:
-            result_line = f"  RESULT  : *** WIN ***   +${t.pnl_usd:.4f} USDC  ({pnl_sign}{t.pnl_pct:.1f}%)"
+            result_line = f"  RESULT  : *** WIN ***   +${t.pnl_usd:.4f} pUSD  ({pnl_sign}{t.pnl_pct:.1f}%)"
             border      = "═" * 62
         else:
-            result_line = f"  RESULT  : --- LOSS ---  -${abs(t.pnl_usd):.4f} USDC  ({t.pnl_pct:.1f}%)"
+            result_line = f"  RESULT  : --- LOSS ---  -${abs(t.pnl_usd):.4f} pUSD  ({t.pnl_pct:.1f}%)"
             border      = "─" * 62
 
         print(
@@ -169,7 +169,7 @@ class PnLTracker:
             f"Streak : {streak_str:<6}          │\n"
             f"  │  Win Rate : {s.win_rate:>6.1%}   "
             f"[{'█'*bar_w}{'░'*bar_l}]             │\n"
-            f"  │  Total PnL : {pnl_sign}${s.total_pnl_usd:>8.4f} USDC   "
+            f"  │  Total PnL : {pnl_sign}${s.total_pnl_usd:>8.4f} pUSD   "
             f"Avg/trade : {pnl_sign}{s.avg_pnl_pct:.2f}%  │\n"
             f"  │  Max Drawdown : ${s.max_drawdown:.4f}   "
             f"Last-10 WR : {s.last_n_win_rate(10):.1%}          │\n"

@@ -243,7 +243,7 @@ class PositionManager:
             f"\n{'═'*62}\n"
             f"  BET PLACED  {arrow} {token_side}  {mode}\n"
             f"  Market  : {market_id}\n"
-            f"  Entry   : ${entry_price:.4f}   Size: ${size_usdc:.2f} USDC"
+            f"  Entry   : ${entry_price:.4f}   Size: ${size_usdc:.2f} pUSD"
             f"  ({size_shares:.4f} shares)\n"
             f"  P(win)  : {p_true:.1%}   Z-score: {z_score:.3f}\n"
             f"  Stop    : ${pos.trailing_stop_price:.4f}  (−50% / Level 0)\n"
@@ -493,7 +493,7 @@ class PositionManager:
             f"  Entry  : ${pos.entry_price:.4f}   Exit: ${exit_price:.4f}\n"
             f"  P&L    : ${pnl_usd:+.4f}  ({pnl_pct:+.1f}%)\n"
             f"  R:R    : {rr_str}  (trail level reached: {pos.trail_level})\n"
-            f"  Size   : ${pos.size_usdc:.2f} USDC  ({pos.size_shares:.4f} shares)\n"
+            f"  Size   : ${pos.size_usdc:.2f} pUSD  ({pos.size_shares:.4f} shares)\n"
             f"{'═'*62}\n"
         )
         logger.info(
