@@ -99,22 +99,22 @@ class Orchestrator:
             polymarket_coro,
             sniper_coro,
             kill_switch_coro,
-            self._run_agent("PositionMonitor",  self.position_manager.monitor_loop(self.state)),
-            self._run_agent("Evaluator",         self.evaluator.run()),
-            self._run_agent("OSINTResearcher",   self.osint_researcher.run()),
-            self._run_agent("Developer",         self.developer.run()),
-            self._run_agent("LearningAgent",     self.learning_agent.run()),
-            self._run_agent("PingMonitor",       ping_monitor_loop(self.state)),
-            self._run_agent("LoopLagSensor",     loop_lag_sensor()),
+            self._run_agent("PositionMonitor",  lambda: self.position_manager.monitor_loop(self.state)),
+            self._run_agent("Evaluator",         lambda: self.evaluator.run()),
+            self._run_agent("OSINTResearcher",   lambda: self.osint_researcher.run()),
+            self._run_agent("Developer",         lambda: self.developer.run()),
+            self._run_agent("LearningAgent",     lambda: self.learning_agent.run()),
+            self._run_agent("PingMonitor",       lambda: ping_monitor_loop(self.state)),
+            self._run_agent("LoopLagSensor",     lambda: loop_lag_sensor()),
             self._tick_logger(),
             return_exceptions=False,
         )
 
-    async def _run_agent(self, name: str, coro) -> None:
-        """Wrap a coroutine with auto-restart on unexpected failure."""
+    async def _run_agent(self, name: str, coro_fn) -> None:
+        """Wrap a coroutine factory with auto-restart on unexpected failure."""
         while True:
             try:
-                await coro
+                await coro_fn()
                 break  # normal exit
             except asyncio.CancelledError:
                 raise

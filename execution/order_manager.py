@@ -189,8 +189,8 @@ class OrderManager:
         except Exception as exc:
             logger.warning("Could not fetch token balance, using theoretical size: %s", exc)
 
-        bid_price = _CleanFloat(round(min(max(bid_price, 0.01), 0.99), 2))
-        size_shares = _CleanFloat(math.floor(size_shares * 100) / 100)
+        bid_price   = round(min(max(bid_price, 0.01), 0.99), 2)
+        size_shares = math.floor(size_shares * 100) / 100
 
         order_args = OrderArgs(
             token_id=token_id,
