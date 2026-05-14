@@ -213,10 +213,7 @@ class OrderManager:
     async def _place_market_order(
         self, token_id: str, side: str, ask_price: float, usdc: float, loop
     ) -> dict | None:
-        """Market FAK — spends up to `usdc` USDC, fills whatever liquidity exists.
-        Falls back to a FAK limit at ask+slip only if the book is completely empty.
-        """
-        # ── Attempt 1: market FAK — fills whatever liquidity exists ──────────
+        """Market FAK — spends up to `usdc` USDC, fills whatever liquidity exists."""
         try:
             order_args = MarketOrderArgs(token_id=token_id, amount=usdc, side=side)
             signed_order = await loop.run_in_executor(
@@ -238,43 +235,7 @@ class OrderManager:
         except Exception as exc:
             msg = str(exc)
             if "no orders found" in msg or "FAK" in msg or "400" in msg:
-                logger.warning("Market FAK killed — no liquidity at all, trying FAK limit fallback: %s", exc)
+                logger.warning("Market FAK — no liquidity, trade missed: %s", exc)
             else:
                 logger.error("Market order failed: %s", exc)
-                return None
-
-        # ── Last resort: FAK limit at ask + slip ──────────────────────────
-        logger.warning("Market FAK failed — trying FAK limit fallback")
-        fak_price  = round(min(max(ask_price + _FAK_PRICE_SLIP, 0.01), 0.99), 2)
-        shares     = _find_clean_shares(fak_price, usdc)
-        order_args = OrderArgs(
-            token_id=token_id,
-            price=fak_price,
-            size=float(shares),
-            side=side,
-        )
-        options = PartialCreateOrderOptions(tick_size="0.01")
-        try:
-            signed_order = await loop.run_in_executor(
-                None, lambda: self._client.create_order(order_args, options)
-            )
-            logger.info("Signed FAK fallback order: %s", signed_order)
-            result = await loop.run_in_executor(
-                None, lambda: self._client.post_order(signed_order, OrderType.FAK)
-            )
-            _check_response(result, "fak-fallback")
-            order_id = result.get("orderID") or result.get("id", "") if result else ""
-            if order_id:
-                await asyncio.sleep(0.5)
-                fill_status = await loop.run_in_executor(None, lambda: self._client.get_order(order_id))
-                if fill_status:
-                    result = fill_status
-                await self.verify_trade(order_id)
-            return result
-        except Exception as exc:
-            msg = str(exc)
-            if "no orders found to match" in msg or "FAK" in msg:
-                logger.warning("FAK fallback also killed — no liquidity (missed trade): %s", exc)
-            else:
-                logger.error("FAK fallback failed: %s", exc)
             return None
