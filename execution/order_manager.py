@@ -34,7 +34,7 @@ except ImportError:
     logger.warning("py-clob-client not installed — live execution disabled")
 
 _MAKER_WAIT_SECONDS = 1.0
-_FAK_PRICE_SLIP     = 0.08
+_FAK_PRICE_SLIP     = 0.03
 
 def _find_clean_shares(price: float, usdc: float, min_shares: int = 5) -> int:
     """
