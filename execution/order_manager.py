@@ -33,8 +33,8 @@ except ImportError:
     _SDK_AVAILABLE = False
     logger.warning("py-clob-client not installed — live execution disabled")
 
-_MAKER_WAIT_SECONDS = 1.0
 _FAK_PRICE_SLIP     = 0.03
+_GTC_WAIT_SECONDS   = 5.0   # wait this long for a GTC fill before cancelling
 
 def _find_clean_shares(price: float, usdc: float, min_shares: int = 5) -> int:
     """
@@ -213,7 +213,12 @@ class OrderManager:
     async def _place_market_order(
         self, token_id: str, side: str, ask_price: float, usdc: float, loop
     ) -> dict | None:
-        """Market FAK — spends up to `usdc` USDC, fills whatever liquidity exists."""
+        """
+        1. Try market FAK — fills whatever is in the book immediately.
+        2. If book is empty, place a GTC limit at ask price and wait up to
+           _GTC_WAIT_SECONDS for a seller to appear, then cancel if still open.
+        """
+        # ── Attempt 1: market FAK ─────────────────────────────────────────
         try:
             order_args = MarketOrderArgs(token_id=token_id, amount=usdc, side=side)
             signed_order = await loop.run_in_executor(
@@ -235,7 +240,47 @@ class OrderManager:
         except Exception as exc:
             msg = str(exc)
             if "no orders found" in msg or "FAK" in msg or "400" in msg:
-                logger.warning("Market FAK — no liquidity, trade missed: %s", exc)
+                logger.warning("Market FAK empty book — placing GTC limit and waiting %.0fs", _GTC_WAIT_SECONDS)
             else:
                 logger.error("Market order failed: %s", exc)
+                return None
+
+        # ── Attempt 2: GTC limit at ask, wait for fill, then cancel ──────
+        gtc_price  = round(min(max(ask_price + _FAK_PRICE_SLIP, 0.01), 0.99), 2)
+        shares     = _find_clean_shares(gtc_price, usdc)
+        order_args = OrderArgs(token_id=token_id, price=gtc_price, size=float(shares), side=side)
+        options    = PartialCreateOrderOptions(tick_size="0.01")
+        gtc_id     = None
+        try:
+            signed_order = await loop.run_in_executor(
+                None, lambda: self._client.create_order(order_args, options)
+            )
+            result = await loop.run_in_executor(
+                None, lambda: self._client.post_order(signed_order, OrderType.GTC)
+            )
+            _check_response(result, "gtc")
+            gtc_id = result.get("orderID") or result.get("id", "") if result else ""
+            logger.info("GTC limit placed at $%.2f for %d shares (id=%s)", gtc_price, shares, gtc_id)
+        except Exception as exc:
+            logger.error("GTC limit placement failed: %s", exc)
             return None
+
+        if not gtc_id:
+            return None
+
+        # Poll for fill, then cancel if still open
+        await asyncio.sleep(_GTC_WAIT_SECONDS)
+        try:
+            status = await loop.run_in_executor(None, lambda: self._client.get_order(gtc_id))
+            size_matched = float((status or {}).get("sizeMatched", 0))
+            if size_matched > 0:
+                logger.info("GTC filled %.4f shares after wait", size_matched)
+                return status
+            # Cancel unfilled GTC
+            await loop.run_in_executor(
+                None, lambda: self._client.cancel(order_id=gtc_id)
+            )
+            logger.warning("GTC cancelled — no fill after %.0fs (trade missed)", _GTC_WAIT_SECONDS)
+        except Exception as exc:
+            logger.error("GTC status/cancel failed: %s", exc)
+        return None
