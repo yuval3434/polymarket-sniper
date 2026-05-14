@@ -340,8 +340,16 @@ async def research(
     # Always include the current live config as baseline comparison
     candidates.append(copy.deepcopy(live_config))
 
-    results = [backtest(c, candles) for c in candidates]
-    results.sort(key=lambda r: r.score, reverse=True)
+    # Run all backtests in a thread so the event loop stays responsive.
+    # Each backtest is pure-Python CPU work (~50-200ms); moving to a thread
+    # releases the event loop between GIL switches even though there is no
+    # true parallelism.
+    def _run_backtests() -> list:
+        return sorted(
+            [backtest(c, candles) for c in candidates],
+            key=lambda r: r.score, reverse=True,
+        )
+    results = await asyncio.to_thread(_run_backtests)
 
     for i, r in enumerate(results[:3]):
         logger.info(

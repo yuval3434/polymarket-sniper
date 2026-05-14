@@ -107,7 +107,7 @@ class LearningAgent:
             )
             return
 
-        live_cfg = load_live_config()
+        live_cfg = await asyncio.to_thread(load_live_config)
         logger.info("LearningAgent: running research cycle…")
 
         viable: list[BacktestResult] = await research(live_cfg, report, n_random=8)
@@ -130,7 +130,8 @@ class LearningAgent:
             f"_{uuid.uuid4().hex[:6]}"
         )
 
-        stage_candidate(
+        await asyncio.to_thread(
+            stage_candidate,
             params=best.params,
             backtest_score=best.score,
             backtest_win_rate=best.win_rate,
@@ -169,7 +170,8 @@ class LearningAgent:
 
         if status == ValidationStatus.APPROVED:
             vstate = self._active_validation
-            promote_candidate(
+            await asyncio.to_thread(
+                promote_candidate,
                 paper_win_rate=vstate.win_rate,
                 paper_trades=vstate.settled_trades,
                 experiment_id=self._experiment_id,
@@ -182,7 +184,7 @@ class LearningAgent:
             self._experiment_id     = ""
 
         elif status == ValidationStatus.REJECTED:
-            reject_candidate(reason, self._experiment_id)
+            await asyncio.to_thread(reject_candidate, reason, self._experiment_id)
             print(
                 f"\n  ❌  LearningAgent: REJECTED {self._experiment_id}\n"
                 f"  {reason}\n"
