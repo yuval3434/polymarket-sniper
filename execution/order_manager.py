@@ -272,15 +272,21 @@ class OrderManager:
         await asyncio.sleep(_GTC_WAIT_SECONDS)
         try:
             status = await loop.run_in_executor(None, lambda: self._client.get_order(gtc_id))
-            size_matched = float((status or {}).get("sizeMatched", 0))
+            s = status or {}
+            size_matched = float(
+                s.get("sizeMatched") or s.get("size_matched") or
+                s.get("sizeFilled") or s.get("size_filled") or 0
+            )
             if size_matched > 0:
                 logger.info("GTC filled %.4f shares after wait", size_matched)
                 return status
-            # Cancel unfilled GTC
-            await loop.run_in_executor(
-                None, lambda: self._client.cancel(order_id=gtc_id)
-            )
+        except Exception as exc:
+            logger.error("GTC status check failed: %s", exc)
+
+        # Cancel unfilled GTC
+        try:
+            await loop.run_in_executor(None, lambda: self._client.cancel_order(gtc_id))
             logger.warning("GTC cancelled — no fill after %.0fs (trade missed)", _GTC_WAIT_SECONDS)
         except Exception as exc:
-            logger.error("GTC status/cancel failed: %s", exc)
+            logger.error("GTC cancel failed: %s", exc)
         return None
