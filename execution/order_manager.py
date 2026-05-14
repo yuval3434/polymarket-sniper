@@ -34,7 +34,7 @@ except ImportError:
     logger.warning("py-clob-client not installed — live execution disabled")
 
 _MAKER_WAIT_SECONDS = 3.0
-_FAK_PRICE_SLIP = 0.02
+_FAK_PRICE_SLIP = 0.05
 
 def _find_clean_shares(price: float, usdc: float, min_shares: int = 5) -> int:
     """
@@ -272,5 +272,9 @@ class OrderManager:
                 
             return result
         except Exception as exc:
-            logger.error("Market order failed: %s", exc)
+            msg = str(exc)
+            if "no orders found to match" in msg or "FAK" in msg:
+                logger.warning("FAK order killed — no liquidity at price (missed trade): %s", exc)
+            else:
+                logger.error("Market order failed: %s", exc)
             return None
