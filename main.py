@@ -235,22 +235,29 @@ async def sniper_loop(
         mode_tag = "[PAPER]" if dry_run else "[LIVE]"
         logger.info(
             "SNIPE %s [%s T-%.1fs]: side=%s ask=%.4f P=%.3f Z=%.3f"
-            " EV=%.4f bet=$%.2f maker=%s",
+            " EV=%.4f max_bet=$%.2f maker=%s",
             mode_tag, phase, tau, token_side, ask_price,
             p_true, Z, ev, bet_usdc, use_maker,
         )
 
         if not dry_run:
-            asyncio.create_task(
-                order_manager.snipe(
+            async def _execute_and_confirm():
+                result = await order_manager.snipe(
                     token_id=token_id, side="BUY",
                     ask_price=ask_price, use_maker=use_maker,
                     state=state, size_usdc=bet_usdc,
                     p_true=p_true,
-                    # TODO: pass actual USDC balance so SDK can compute fee-adjusted fills
-                    # user_usdc_balance=state.usdc_balance,
                 )
-            )
+                if result and isinstance(result, dict) and result.get("status") != "simulated":
+                    size_matched = float(result.get("sizeMatched") or result.get("size_matched") or 0)
+                    fill_price   = float(result.get("price") or ask_price)
+                    actual_usdc  = round(size_matched * fill_price, 4)
+                    logger.info(
+                        "FILLED: %.4f shares @ $%.4f = $%.4f pUSD (requested $%.2f)",
+                        size_matched, fill_price, actual_usdc, bet_usdc,
+                    )
+                    orchestrator.confirm_trade_execution(fill_price, actual_usdc)
+            asyncio.create_task(_execute_and_confirm())
 
 
 # ---------------------------------------------------------------------------
