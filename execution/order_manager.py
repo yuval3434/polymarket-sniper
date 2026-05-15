@@ -20,6 +20,7 @@ from market.state import MarketState
 logger = logging.getLogger(__name__)
 
 try:
+    import httpx
     from py_clob_client_v2.client import ClobClient
     from py_clob_client_v2.clob_types import (
         OrderPayload,
@@ -31,6 +32,18 @@ try:
         PartialCreateOrderOptions,
     )
     from py_clob_client_v2.constants import POLYGON
+    import py_clob_client_v2.http_helpers.helpers as _poly_helpers
+
+    # Replace the SDK's default no-timeout httpx client with one that fails fast.
+    # The default hangs for the OS TCP timeout (~5s). 1.5s gives enough time for
+    # a congested API to respond while still being fast enough to retry within the
+    # 5-minute market window.
+    _poly_helpers._http_client = httpx.Client(
+        http2=True,
+        timeout=httpx.Timeout(connect=1.0, read=1.5, write=1.0, pool=1.0),
+    )
+    logger.info("Polymarket httpx client timeout set: connect=1.0s read=1.5s")
+
     _SDK_AVAILABLE = True
 except ImportError:
     _SDK_AVAILABLE = False
@@ -285,6 +298,14 @@ class OrderManager:
             msg = str(exc)
             if "no orders found" in msg or "FAK" in msg or "400" in msg:
                 logger.warning("Market FAK — empty book (will retry if drift ok)")
+            elif (
+                "Request exception!" in msg          # SDK wraps httpx.RequestError here
+                or "timed out" in msg.lower()
+                or "timeout" in msg.lower()
+                or "ReadTimeout" in msg
+                or "ConnectTimeout" in msg
+            ):
+                logger.warning("API congested — request timed out, aborting fast")
             else:
                 logger.error("Market order failed: %s", exc)
             return None
